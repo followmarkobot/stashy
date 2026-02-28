@@ -6,12 +6,12 @@ import { createRoot } from "react-dom/client";
 import SemanticSearch from "./SemanticSearch";
 
 function flushPromises() {
-  return new Promise((resolve) => setTimeout(resolve, 0));
+  return new Promise<void>((resolve) => setTimeout(resolve, 0));
 }
 
 describe("SemanticSearch chat flow", () => {
-  let container;
-  let root;
+  let container: HTMLDivElement;
+  let root: ReturnType<typeof createRoot>;
 
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -44,7 +44,9 @@ describe("SemanticSearch chat flow", () => {
       );
     });
 
-    const chatInput = container.querySelector('input[placeholder="ask a question or request a draft..."]');
+    const chatInput = container.querySelector(
+      'input[placeholder="ask a question or request a draft..."]'
+    ) as HTMLInputElement;
     expect(chatInput).not.toBeNull();
 
     await act(async () => {
@@ -56,9 +58,12 @@ describe("SemanticSearch chat flow", () => {
       chatInput.dispatchEvent(new Event("input", { bubbles: true }));
     });
 
-    const sendButton =
+    const sendButton = (
       container.querySelector('button[type="submit"][aria-label="Send message"]') ||
-      Array.from(container.querySelectorAll("button")).find((btn) => btn.textContent?.match(/refine|send/i));
+      Array.from(container.querySelectorAll("button")).find((btn) =>
+        btn.textContent?.match(/refine|send/i)
+      )
+    ) as HTMLButtonElement;
     expect(sendButton).not.toBeNull();
     expect(sendButton.disabled).toBe(false);
 
@@ -90,7 +95,9 @@ describe("SemanticSearch chat flow", () => {
       );
     });
 
-    const chatInput = container.querySelector('input[placeholder="ask a question or request a draft..."]');
+    const chatInput = container.querySelector(
+      'input[placeholder="ask a question or request a draft..."]'
+    ) as HTMLInputElement;
     expect(chatInput).not.toBeNull();
 
     await act(async () => {
@@ -102,9 +109,12 @@ describe("SemanticSearch chat flow", () => {
       chatInput.dispatchEvent(new Event("input", { bubbles: true }));
     });
 
-    const sendButton =
+    const sendButton = (
       container.querySelector('button[type="submit"][aria-label="Send message"]') ||
-      Array.from(container.querySelectorAll("button")).find((btn) => btn.textContent?.match(/refine|send/i));
+      Array.from(container.querySelectorAll("button")).find((btn) =>
+        btn.textContent?.match(/refine|send/i)
+      )
+    ) as HTMLButtonElement;
 
     expect(sendButton).not.toBeNull();
 
@@ -114,9 +124,6 @@ describe("SemanticSearch chat flow", () => {
     });
 
     expect(fetchMock).not.toHaveBeenCalled();
-
-    expect(container.textContent).toContain("retrievedItems is required and cannot be empty");
-
     expect(container.textContent).toContain("retrievedItems is required and cannot be empty");
   });
 });
