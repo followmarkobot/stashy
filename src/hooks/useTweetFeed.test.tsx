@@ -28,8 +28,20 @@ vi.mock("../lib/supabase", () => ({
   fetchAllTags: fetchAllTagsMock,
 }));
 
-function HookHarness() {
-  const { refreshBookmarks, bookmarkSyncStatus } = useTweetFeed("bookmarks");
+// ---------------------------------------------------------------------------
+// Harness: bookmarks — exposes refresh + sync status
+// ---------------------------------------------------------------------------
+function BookmarksHarness() {
+  const feed = useTweetFeed("bookmarks");
+  const refreshBookmarks =
+    "refreshBookmarks" in feed
+      ? (feed as { refreshBookmarks: () => Promise<void> }).refreshBookmarks
+      : async () => {};
+  const bookmarkSyncStatus =
+    "bookmarkSyncStatus" in feed
+      ? (feed as { bookmarkSyncStatus: { summary: string } | null }).bookmarkSyncStatus
+      : null;
+
   return (
     <div>
       <button
@@ -45,28 +57,81 @@ function HookHarness() {
   );
 }
 
-describe("useTweetFeed bookmarks sync", () => {
+// ---------------------------------------------------------------------------
+// Harness: stash — exposes setSearch + setSelectedTags
+// ---------------------------------------------------------------------------
+function StashHarness() {
+  const feed = useTweetFeed("stash");
+  const setSearch =
+    "setSearch" in feed
+      ? (feed as { setSearch: (s: string) => void }).setSearch
+      : () => {};
+  const setSelectedTags =
+    "setSelectedTags" in feed
+      ? (feed as { setSelectedTags: (t: string[]) => void }).setSelectedTags
+      : () => {};
+
+  return (
+    <div>
+      <button data-testid="set-search" onClick={() => setSearch("cats")}>
+        Set search
+      </button>
+      <button data-testid="set-tags" onClick={() => setSelectedTags(["tag1"])}>
+        Set tags
+      </button>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Shared setup helpers
+// ---------------------------------------------------------------------------
+function makeBeforeEach() {
   let container: HTMLDivElement;
   let root: ReturnType<typeof createRoot>;
 
+  return {
+    setup() {
+      vi.restoreAllMocks();
+      checkStatusMock.mockReset();
+      fetchTweetsMock.mockReset();
+      fetchAllTagsMock.mockReset();
+      fetchAllTagsMock.mockResolvedValue([]);
+      fetchTweetsMock.mockResolvedValue({ tweets: [], hasMore: false });
+
+      class IntersectionObserverMock {
+        observe() {}
+        disconnect() {}
+      }
+      vi.stubGlobal("IntersectionObserver", IntersectionObserverMock);
+      (globalThis as { React?: typeof React }).React = React;
+      globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+
+      container = document.createElement("div");
+      document.body.appendChild(container);
+      root = createRoot(container);
+
+      return { get container() { return container; }, get root() { return root; } };
+    },
+    teardown() {
+      act(() => root.unmount());
+      container.remove();
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Bookmarks sync (existing test, preserved)
+// ---------------------------------------------------------------------------
+describe("useTweetFeed bookmarks sync", () => {
+  let container: HTMLDivElement;
+  let root: ReturnType<typeof createRoot>;
+  const helpers = makeBeforeEach();
+
   beforeEach(() => {
-    vi.restoreAllMocks();
-    checkStatusMock.mockReset();
-    fetchTweetsMock.mockReset();
-    fetchAllTagsMock.mockReset();
-    fetchAllTagsMock.mockResolvedValue([]);
-
-    class IntersectionObserverMock {
-      observe() {}
-      disconnect() {}
-    }
-    vi.stubGlobal("IntersectionObserver", IntersectionObserverMock);
-    (globalThis as { React?: typeof React }).React = React;
-    globalThis.IS_REACT_ACT_ENVIRONMENT = true;
-
-    container = document.createElement("div");
-    document.body.appendChild(container);
-    root = createRoot(container);
+    const refs = helpers.setup();
+    container = refs.container;
+    root = refs.root;
   });
 
   it("calls sync endpoint before reloading bookmarks feed", async () => {
@@ -103,7 +168,7 @@ describe("useTweetFeed bookmarks sync", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     await act(async () => {
-      root.render(<HookHarness />);
+      root.render(<BookmarksHarness />);
     });
 
     // Ignore initial automatic bookmarks load on mount.
@@ -121,5 +186,66 @@ describe("useTweetFeed bookmarks sync", () => {
     expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: "POST" });
     expect(String(fetchMock.mock.calls[1][0])).toBe("/api/twitter/bookmarks");
     expect(container.textContent).toContain("Synced 1 from X. Persisted 1 collection entries.");
+
+    helpers.teardown();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Stash feed characterization tests
+// ---------------------------------------------------------------------------
+describe("useTweetFeed stash", () => {
+  let container: HTMLDivElement;
+  let root: ReturnType<typeof createRoot>;
+  const helpers = makeBeforeEach();
+
+  beforeEach(() => {
+    const refs = helpers.setup();
+    container = refs.container;
+    root = refs.root;
+  });
+
+  it("calls fetchTweets on mount with page 0 and empty search", async () => {
+    await act(async () => {
+      root.render(<StashHarness />);
+    });
+
+    expect(fetchTweetsMock).toHaveBeenCalledWith(0, "", []);
+
+    helpers.teardown();
+  });
+
+  it("re-fetches with page 0 when search changes", async () => {
+    await act(async () => {
+      root.render(<StashHarness />);
+    });
+
+    fetchTweetsMock.mockClear();
+
+    const btn = container.querySelector('[data-testid="set-search"]') as HTMLElement;
+    await act(async () => {
+      btn.click();
+    });
+
+    expect(fetchTweetsMock).toHaveBeenCalledWith(0, "cats", []);
+
+    helpers.teardown();
+  });
+
+  it("re-fetches with page 0 when tag filter changes", async () => {
+    await act(async () => {
+      root.render(<StashHarness />);
+    });
+
+    fetchTweetsMock.mockClear();
+
+    const btn = container.querySelector('[data-testid="set-tags"]') as HTMLElement;
+    await act(async () => {
+      btn.click();
+    });
+
+    expect(fetchTweetsMock).toHaveBeenCalledWith(0, "", ["tag1"]);
+
+    helpers.teardown();
   });
 });

@@ -8,6 +8,7 @@ import type { Tweet } from "../lib/supabase";
 
 vi.mock("../hooks/useTweetFeed", () => ({
   useTweetFeed: () => ({
+    source: "bookmarks",
     tweets: [
       {
         id: 1,

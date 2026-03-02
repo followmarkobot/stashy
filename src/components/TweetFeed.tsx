@@ -47,22 +47,19 @@ export default function TweetFeed({
   const semanticMode = typeof onToggleSemanticSelect === "function";
   const hasSemanticFilter = semanticFilterIds.length > 0;
 
-  const {
-    tweets,
-    loading,
-    initialLoading,
-    hasMore,
-    search,
-    setSearch,
-    selectedTags,
-    setSelectedTags,
-    availableTags,
-    loadMore,
-    refreshBookmarks,
-    bookmarkSyncStatus,
-    isChecking,
-    isConnected,
-  } = useTweetFeed(dataSource);
+  const feed = useTweetFeed(dataSource);
+  const { tweets, loading, initialLoading, hasMore, loadMore } = feed;
+
+  // Narrow source-specific props
+  const search = feed.source === "stash" ? feed.search : "";
+  const setSearch = feed.source === "stash" ? feed.setSearch : undefined;
+  const selectedTags = feed.source === "stash" ? feed.selectedTags : [];
+  const setSelectedTags = feed.source === "stash" ? feed.setSelectedTags : undefined;
+  const availableTags = feed.source === "stash" ? feed.availableTags : [];
+  const refreshBookmarks = feed.source === "bookmarks" ? feed.refreshBookmarks : undefined;
+  const bookmarkSyncStatus = feed.source === "bookmarks" ? feed.bookmarkSyncStatus : null;
+  const isConnected = feed.source === "bookmarks" ? feed.isConnected : false;
+  const isChecking = feed.source === "bookmarks" ? feed.isChecking : false;
 
   const handleExportJSON = useCallback(() => {
     const json = JSON.stringify(tweets, null, 2);
@@ -92,7 +89,7 @@ export default function TweetFeed({
     return () => observer.disconnect();
   }, [loadMore]);
 
-  const showConnectBanner = dataSource === "bookmarks" && !isChecking && !isConnected;
+  const showConnectBanner = feed.source === "bookmarks" && !isChecking && !isConnected;
   const semanticOrder = useMemo(() => {
     const map = new Map<string, number>();
     semanticFilterIds.forEach((id, index) => map.set(id, index));
@@ -143,7 +140,7 @@ export default function TweetFeed({
 
   return (
     <div>
-      {dataSource === "stash" && (
+      {feed.source === "stash" && setSearch && setSelectedTags && (
         <div className="relative">
           <SearchBar
             onSearch={setSearch}
@@ -168,7 +165,7 @@ export default function TweetFeed({
 
       {showConnectBanner && <XConnectBanner />}
 
-      {dataSource === "bookmarks" && isConnected && (
+      {feed.source === "bookmarks" && isConnected && refreshBookmarks && (
         <div className="border-b border-[rgb(47,51,54)] px-4 py-2">
           <div className="flex items-center justify-end">
             <button
@@ -278,7 +275,7 @@ export default function TweetFeed({
           </svg>
           <p className="text-lg font-medium">No tweets found</p>
           <p className="mt-1 text-sm">
-            {dataSource === "bookmarks"
+            {feed.source === "bookmarks"
               ? "No bookmarks returned from X"
               : search || selectedTags.length > 0
                 ? "Try adjusting your search or filters"
