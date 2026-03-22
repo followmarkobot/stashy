@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useXAuth } from "../contexts/XAuthContext";
-import type { DataSource } from "../components/DataSourceToggle";
 
 interface UsePageModalsOptions {
   onXConnected?: () => void;

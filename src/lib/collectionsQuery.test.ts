@@ -14,7 +14,7 @@ function createMock(
   let attempt = 0;
 
   const supabase = {
-    from(_table: string) {
+    from() {
       return {
         upsert(rows: unknown, opts?: Record<string, unknown>) {
           calls.push({ rows, options: opts });

@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { mergeSearchResults } from "../lib/searchResults";
+import type { SemanticResultItem } from "./useSemanticSearch";
 
 export type { SemanticResultItem } from "./useSemanticSearch";
 
@@ -60,8 +61,8 @@ export function useSemanticSearchPanel({
   const [error, setError] = useState("");
   const activeSearchIdRef = useRef(0);
 
-  const safeResults = results || [];
-  const safeSelectedIds = selectedIds || [];
+  const safeResults = useMemo(() => results ?? [], [results]);
+  const safeSelectedIds = useMemo(() => selectedIds ?? [], [selectedIds]);
 
   const selectedItems = useMemo(
     () => safeResults.filter((item) => safeSelectedIds.includes(item.id)),

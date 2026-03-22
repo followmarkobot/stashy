@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // --- Hoisted controllable mocks (run before vi.mock factories) ---
 const { searchParamsGet, checkStatusMock } = vi.hoisted(() => ({
-  searchParamsGet: vi.fn((_key: string) => null as string | null),
+  searchParamsGet: vi.fn(() => null as string | null),
   checkStatusMock: vi.fn(),
 }));
 

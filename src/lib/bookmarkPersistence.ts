@@ -77,7 +77,7 @@ export async function persistBookmarksForOwnerWithClient(
     new Map(tweets.map((tweet) => [tweet.tweet_id, tweet])).values()
   );
 
-  let tweetRows = uniqueTweets.map((tweet) => ({
+  let tweetRows: Record<string, unknown>[] = uniqueTweets.map((tweet) => ({
     ...buildCanonicalTweetRow(tweet),
     quoted_tweet: tweet.quoted_tweet,
     public_metrics: tweet.public_metrics ?? null,
@@ -90,7 +90,7 @@ export async function persistBookmarksForOwnerWithClient(
 
   if (canonicalTweetError && shouldRetryWithoutOptionalTweetFields(canonicalTweetError)) {
     retriedWithoutOptionalFields = true;
-    tweetRows = uniqueTweets.map((tweet) => buildCanonicalTweetRow(tweet)) as any[];
+    tweetRows = uniqueTweets.map((tweet) => buildCanonicalTweetRow(tweet));
     const retry = await supabase.from("tweets").upsert(tweetRows, { onConflict: "tweet_id" });
     canonicalTweetError = retry.error;
   }

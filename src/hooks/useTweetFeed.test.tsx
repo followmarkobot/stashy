@@ -135,7 +135,7 @@ describe("useTweetFeed bookmarks sync", () => {
   });
 
   it("calls sync endpoint before reloading bookmarks feed", async () => {
-    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
       const url = String(input);
       if (url === "/api/twitter/bookmarks/sync") {
         return Promise.resolve({
