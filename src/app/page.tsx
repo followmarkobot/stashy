@@ -16,6 +16,7 @@ import type { Tweet } from "../lib/supabase";
 import { useView } from "../contexts/ViewContext";
 import { XAuthProvider } from "../contexts/XAuthContext";
 import { SuccessToast } from "../components/SuccessToast";
+import { XConnectionNotice } from "../components/XConnectionNotice";
 import { DataSourceToggle, type DataSource } from "../components/DataSourceToggle";
 import { useSemanticSearch } from "../hooks/useSemanticSearch";
 import { usePageModals } from "../hooks/usePageModals";
@@ -58,6 +59,12 @@ function HomeContent() {
   return (
     <>
       {modals.showSuccess && <SuccessToast onDismiss={() => modals.setShowSuccess(false)} />}
+      {modals.xConnectionError && (
+        <XConnectionNotice
+          errorCode={modals.xConnectionError}
+          onDismiss={() => modals.setXConnectionError(null)}
+        />
+      )}
       <PricingModal isOpen={modals.showPricing} onClose={() => modals.setShowPricing(false)} />
       <OnboardingModal isOpen={modals.showOnboarding} onClose={modals.handleOnboardingClose} />
 

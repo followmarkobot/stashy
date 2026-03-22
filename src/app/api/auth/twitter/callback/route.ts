@@ -1,5 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 
+type CallbackFailureReason =
+  | "missing_oauth_params"
+  | "missing_oauth_cookies"
+  | "state_mismatch"
+  | "oauth_env_missing"
+  | "token_exchange_failed"
+  | "current_user_fetch_failed"
+  | "missing_user_id"
+  | "unexpected_callback_error";
+
 interface TokenResponse {
   access_token: string;
   refresh_token?: string;
@@ -13,13 +23,39 @@ interface MeResponse {
   };
 }
 
+class TwitterCallbackError extends Error {
+  constructor(
+    readonly reason: CallbackFailureReason,
+    message: string
+  ) {
+    super(message);
+    this.name = "TwitterCallbackError";
+  }
+}
+
+function buildCallbackRedirectUrl(
+  request: NextRequest,
+  connected: boolean,
+  errorReason?: CallbackFailureReason
+): URL {
+  const url = new URL("/", request.url);
+  url.searchParams.set("xConnected", connected ? "1" : "0");
+  if (errorReason) {
+    url.searchParams.set("xError", errorReason);
+  }
+  return url;
+}
+
 async function exchangeCodeForToken(code: string, verifier: string): Promise<TokenResponse> {
   const clientId = process.env.TWITTER_CLIENT_ID;
   const clientSecret = process.env.TWITTER_CLIENT_SECRET;
   const callbackUrl = process.env.TWITTER_CALLBACK_URL;
 
   if (!clientId || !callbackUrl) {
-    throw new Error("Missing Twitter OAuth environment variables.");
+    throw new TwitterCallbackError(
+      "oauth_env_missing",
+      "Missing Twitter OAuth environment variables."
+    );
   }
 
   const body = new URLSearchParams({
@@ -48,7 +84,10 @@ async function exchangeCodeForToken(code: string, verifier: string): Promise<Tok
 
   if (!response.ok) {
     const details = await response.text();
-    throw new Error(`Token exchange failed: ${details}`);
+    throw new TwitterCallbackError(
+      "token_exchange_failed",
+      `Token exchange failed: ${details}`
+    );
   }
 
   return (await response.json()) as TokenResponse;
@@ -64,7 +103,10 @@ async function fetchCurrentUser(accessToken: string): Promise<MeResponse["data"]
 
   if (!response.ok) {
     const details = await response.text();
-    throw new Error(`Failed to fetch current user: ${details}`);
+    throw new TwitterCallbackError(
+      "current_user_fetch_failed",
+      `Failed to fetch current user: ${details}`
+    );
   }
 
   const payload = (await response.json()) as MeResponse;
@@ -76,18 +118,39 @@ function clearPkceCookies(response: NextResponse) {
   response.cookies.set("x_oauth_state", "", { maxAge: 0, path: "/" });
 }
 
+function clearPkceAndRedirect(
+  request: NextRequest,
+  reason: CallbackFailureReason
+): NextResponse {
+  const response = NextResponse.redirect(buildCallbackRedirectUrl(request, false, reason));
+  clearPkceCookies(response);
+  return response;
+}
+
 export async function GET(request: NextRequest) {
   const code = request.nextUrl.searchParams.get("code");
   const state = request.nextUrl.searchParams.get("state");
   const storedVerifier = request.cookies.get("x_oauth_verifier")?.value;
   const storedState = request.cookies.get("x_oauth_state")?.value;
 
-  const redirectErrorUrl = new URL("/?xConnected=0", request.url);
-
   if (!code || !state || !storedVerifier || !storedState || state !== storedState) {
-    const response = NextResponse.redirect(redirectErrorUrl);
-    clearPkceCookies(response);
-    return response;
+    const reason: CallbackFailureReason =
+      !code || !state
+        ? "missing_oauth_params"
+        : !storedVerifier || !storedState
+          ? "missing_oauth_cookies"
+          : "state_mismatch";
+
+    console.warn("Twitter callback validation failed:", {
+      reason,
+      hasCode: Boolean(code),
+      hasState: Boolean(state),
+      hasStoredVerifier: Boolean(storedVerifier),
+      hasStoredState: Boolean(storedState),
+      callbackHost: request.nextUrl.host,
+    });
+
+    return clearPkceAndRedirect(request, reason);
   }
 
   try {
@@ -95,13 +158,16 @@ export async function GET(request: NextRequest) {
     const user = await fetchCurrentUser(token.access_token);
 
     if (!user?.id) {
-      throw new Error("Twitter user id missing in /users/me response");
+      throw new TwitterCallbackError(
+        "missing_user_id",
+        "Twitter user id missing in /users/me response"
+      );
     }
 
     const secure = process.env.NODE_ENV === "production";
     const expiresAt = Date.now() + (token.expires_in ?? 7200) * 1000;
 
-    const response = NextResponse.redirect(new URL("/?xConnected=1", request.url));
+    const response = NextResponse.redirect(buildCallbackRedirectUrl(request, true));
     clearPkceCookies(response);
 
     response.cookies.set("x_access_token", token.access_token, {
@@ -148,9 +214,15 @@ export async function GET(request: NextRequest) {
 
     return response;
   } catch (error) {
-    console.error("Twitter callback error:", error);
-    const response = NextResponse.redirect(redirectErrorUrl);
-    clearPkceCookies(response);
-    return response;
+    const reason =
+      error instanceof TwitterCallbackError ? error.reason : "unexpected_callback_error";
+
+    console.error("Twitter callback error:", {
+      reason,
+      message: error instanceof Error ? error.message : String(error),
+      callbackHost: request.nextUrl.host,
+    });
+
+    return clearPkceAndRedirect(request, reason);
   }
 }

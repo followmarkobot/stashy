@@ -261,6 +261,18 @@ describe("URL param effects", () => {
     const toggle = container.querySelector('[data-testid="data-source-toggle"]');
     expect(toggle?.getAttribute("data-value")).toBe("bookmarks");
   });
+
+  it("xConnected=0 shows a visible X connection failure message", async () => {
+    searchParamsGet.mockImplementation((key: string) => {
+      if (key === "xConnected") return "0";
+      if (key === "xError") return "token_exchange_failed";
+      return null;
+    });
+
+    await renderHome();
+
+    expect(container.textContent).toContain("We couldn't finish connecting your X account");
+  });
 });
 
 // ---------------------------------------------------------------------------
