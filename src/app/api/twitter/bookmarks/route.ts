@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { mapXBookmarksToTweets } from "@/lib/twitter";
 import type { LinkCardData } from "@/lib/supabase";
+import { sortTweetsReverseChronological } from "@/lib/tweetOrder";
+import { dedupeTweetsById } from "@/lib/dedupeTweets";
 
 export const runtime = "nodejs";
 
@@ -134,9 +136,13 @@ async function fetchPersistedBookmarksPage(ownerXUserId: string, cursor: string 
     ])
   );
 
-  const tweets = orderedIds
-    .map((tweetId) => byId.get(tweetId))
-    .filter((tweet): tweet is Record<string, unknown> => Boolean(tweet));
+  const tweets = dedupeTweetsById(
+    sortTweetsReverseChronological(
+      orderedIds
+        .map((tweetId) => byId.get(tweetId))
+        .filter((tweet): tweet is Record<string, unknown> => Boolean(tweet))
+    )
+  );
 
   return {
     tweets,

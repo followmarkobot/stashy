@@ -140,6 +140,250 @@ describe("/api/twitter/bookmarks", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("returns cached bookmarks in reverse chronological order by tweet timestamp", async () => {
+    process.env.SUPABASE_URL = "https://example.supabase.co";
+    process.env.SUPABASE_SERVICE_KEY = "service-role-key";
+
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const fromMock = vi.fn((table: string) => {
+      if (table === "collections") {
+        return {
+          select: () => ({
+            eq: () => ({
+              eq: () => ({
+                maybeSingle: async () => ({
+                  data: { id: "bookmarks-col" },
+                  error: null,
+                }),
+              }),
+            }),
+          }),
+        };
+      }
+
+      if (table === "collection_tweets") {
+        return {
+          select: () => ({
+            eq: () => ({
+              order: () => ({
+                range: async () => ({
+                  data: [{ tweet_id: "tweet-older" }, { tweet_id: "tweet-newer" }],
+                  error: null,
+                }),
+              }),
+            }),
+          }),
+        };
+      }
+
+      if (table === "tweets") {
+        return {
+          select: () => ({
+            in: async () => ({
+              data: [
+                {
+                  id: 1,
+                  tweet_id: "tweet-older",
+                  tweet_text: "older",
+                  author_handle: "marko",
+                  author_display_name: "Marko",
+                  author_avatar_url: null,
+                  timestamp: "2026-01-01T00:00:00.000Z",
+                  source_url: "https://x.com/marko/status/1",
+                  media: [],
+                  link_cards: [],
+                  quoted_tweet_id: null,
+                  quoted_tweet: null,
+                  in_reply_to_tweet_id: null,
+                  conversation_id: null,
+                  raw_json: null,
+                  tags: [],
+                  notes: null,
+                  saved_at: "2026-03-01T00:00:00.000Z",
+                  created_at: null,
+                },
+                {
+                  id: 2,
+                  tweet_id: "tweet-newer",
+                  tweet_text: "newer",
+                  author_handle: "marko",
+                  author_display_name: "Marko",
+                  author_avatar_url: null,
+                  timestamp: "2026-02-01T00:00:00.000Z",
+                  source_url: "https://x.com/marko/status/2",
+                  media: [],
+                  link_cards: [],
+                  quoted_tweet_id: null,
+                  quoted_tweet: null,
+                  in_reply_to_tweet_id: null,
+                  conversation_id: null,
+                  raw_json: null,
+                  tags: [],
+                  notes: null,
+                  saved_at: "2026-01-01T00:00:00.000Z",
+                  created_at: null,
+                },
+              ],
+              error: null,
+            }),
+          }),
+        };
+      }
+
+      return {
+        select: () => ({
+          maybeSingle: async () => ({ data: null, error: null }),
+        }),
+      };
+    });
+
+    createClientMock.mockReturnValue({
+      from: fromMock,
+    });
+
+    const { GET } = await import("./route");
+    const response = await GET(
+      makeRequest({
+        x_access_token: "access-token",
+        x_user_id: "123",
+      })
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.tweets.map((tweet: { tweet_id: string }) => tweet.tweet_id)).toEqual([
+      "tweet-newer",
+      "tweet-older",
+    ]);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("dedupes duplicate tweet ids in the first cached bookmarks page", async () => {
+    process.env.SUPABASE_URL = "https://example.supabase.co";
+    process.env.SUPABASE_SERVICE_KEY = "service-role-key";
+
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const fromMock = vi.fn((table: string) => {
+      if (table === "collections") {
+        return {
+          select: () => ({
+            eq: () => ({
+              eq: () => ({
+                maybeSingle: async () => ({
+                  data: { id: "bookmarks-col" },
+                  error: null,
+                }),
+              }),
+            }),
+          }),
+        };
+      }
+
+      if (table === "collection_tweets") {
+        return {
+          select: () => ({
+            eq: () => ({
+              order: () => ({
+                range: async () => ({
+                  data: [
+                    { tweet_id: "tweet-dup" },
+                    { tweet_id: "tweet-dup" },
+                    { tweet_id: "tweet-unique" },
+                  ],
+                  error: null,
+                }),
+              }),
+            }),
+          }),
+        };
+      }
+
+      if (table === "tweets") {
+        return {
+          select: () => ({
+            in: async () => ({
+              data: [
+                {
+                  id: 1,
+                  tweet_id: "tweet-dup",
+                  tweet_text: "duplicate row",
+                  author_handle: "marko",
+                  author_display_name: "Marko",
+                  author_avatar_url: null,
+                  timestamp: "2026-02-01T00:00:00.000Z",
+                  source_url: "https://x.com/marko/status/1",
+                  media: [],
+                  link_cards: [],
+                  quoted_tweet_id: null,
+                  quoted_tweet: null,
+                  in_reply_to_tweet_id: null,
+                  conversation_id: null,
+                  raw_json: null,
+                  tags: [],
+                  notes: null,
+                  saved_at: null,
+                  created_at: null,
+                },
+                {
+                  id: 2,
+                  tweet_id: "tweet-unique",
+                  tweet_text: "unique row",
+                  author_handle: "marko",
+                  author_display_name: "Marko",
+                  author_avatar_url: null,
+                  timestamp: "2026-01-01T00:00:00.000Z",
+                  source_url: "https://x.com/marko/status/2",
+                  media: [],
+                  link_cards: [],
+                  quoted_tweet_id: null,
+                  quoted_tweet: null,
+                  in_reply_to_tweet_id: null,
+                  conversation_id: null,
+                  raw_json: null,
+                  tags: [],
+                  notes: null,
+                  saved_at: null,
+                  created_at: null,
+                },
+              ],
+              error: null,
+            }),
+          }),
+        };
+      }
+
+      return {
+        select: () => ({
+          maybeSingle: async () => ({ data: null, error: null }),
+        }),
+      };
+    });
+
+    createClientMock.mockReturnValue({
+      from: fromMock,
+    });
+
+    const { GET } = await import("./route");
+    const response = await GET(
+      makeRequest({
+        x_access_token: "access-token",
+        x_user_id: "123",
+      })
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.tweets.map((tweet: { tweet_id: string }) => tweet.tweet_id)).toEqual([
+      "tweet-dup",
+      "tweet-unique",
+    ]);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("derives article link card from raw_json when persisted link_cards are empty", async () => {
     process.env.SUPABASE_URL = "https://example.supabase.co";
     process.env.SUPABASE_SERVICE_KEY = "service-role-key";

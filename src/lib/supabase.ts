@@ -1,5 +1,7 @@
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { mapXBookmarksToTweets } from "./twitter";
+import { sortTweetsReverseChronological } from "./tweetOrder";
+import { dedupeTweetsById } from "./dedupeTweets";
 
 let _supabase: SupabaseClient | null = null;
 
@@ -113,7 +115,7 @@ export async function fetchTweets(
   let query = getSupabase()
     .from("tweets")
     .select("*")
-    .order("saved_at", { ascending: false, nullsFirst: false })
+    .order("timestamp", { ascending: false, nullsFirst: false })
     .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
 
   if (search && search.trim()) {
@@ -132,18 +134,22 @@ export async function fetchTweets(
     return { tweets: [], hasMore: false };
   }
 
-  const tweets = (data ?? []).map((row) => ({
-    ...row,
-    media: Array.isArray(row.media) ? row.media : [],
-    link_cards: (() => {
-      const persisted = Array.isArray(row.link_cards) ? row.link_cards : [];
-      if (persisted.length > 0) return persisted;
-      return deriveLinkCardsFromRawJson(row.raw_json);
-    })(),
-    tags: Array.isArray(row.tags) ? row.tags : [],
-  })) as Tweet[];
+  const tweets = dedupeTweetsById(
+    sortTweetsReverseChronological(
+      (data ?? []).map((row) => ({
+        ...row,
+        media: Array.isArray(row.media) ? row.media : [],
+        link_cards: (() => {
+          const persisted = Array.isArray(row.link_cards) ? row.link_cards : [];
+          if (persisted.length > 0) return persisted;
+          return deriveLinkCardsFromRawJson(row.raw_json);
+        })(),
+        tags: Array.isArray(row.tags) ? row.tags : [],
+      })) as Tweet[]
+    )
+  );
 
-  return { tweets, hasMore: tweets.length === PAGE_SIZE };
+  return { tweets, hasMore: (data ?? []).length === PAGE_SIZE };
 }
 
 export async function fetchTweetById(
