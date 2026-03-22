@@ -5,6 +5,9 @@ import {
   TWITTER_OAUTH_CALLBACK_COOKIE,
 } from "@/lib/twitterAuth";
 
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 function toBase64Url(value: Buffer): string {
   return value
     .toString("base64")
@@ -66,6 +69,7 @@ export async function GET(request: NextRequest) {
     maxAge: 60 * 10,
     path: "/",
   });
+  response.headers.set("Cache-Control", "no-store, max-age=0");
 
   return response;
 }

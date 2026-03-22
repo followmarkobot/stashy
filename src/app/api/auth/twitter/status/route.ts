@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 export async function GET(request: NextRequest) {
   const accessToken = request.cookies.get("x_access_token")?.value;
   const userId = request.cookies.get("x_user_id")?.value;
@@ -9,8 +12,15 @@ export async function GET(request: NextRequest) {
   const expiresAt = expiresAtRaw ? Number(expiresAtRaw) : 0;
   const connected = Boolean(accessToken && userId && expiresAt > Date.now());
 
-  return NextResponse.json({
-    connected,
-    handle: connected ? handle : null,
-  });
+  return NextResponse.json(
+    {
+      connected,
+      handle: connected ? handle : null,
+    },
+    {
+      headers: {
+        "Cache-Control": "no-store, max-age=0",
+      },
+    }
+  );
 }

@@ -67,6 +67,13 @@ describe("/api/auth/twitter/callback", () => {
     );
   });
 
+  it("runs dynamically in the node runtime so callback responses are not cached", async () => {
+    const routeModule = await import("./route");
+
+    expect(routeModule.dynamic).toBe("force-dynamic");
+    expect(routeModule.runtime).toBe("nodejs");
+  });
+
   it("redirects with a reproducible error code when token exchange fails", async () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     vi.stubGlobal(

@@ -4,6 +4,9 @@ import {
   TWITTER_OAUTH_CALLBACK_COOKIE,
 } from "@/lib/twitterAuth";
 
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 type CallbackFailureReason =
   | "missing_oauth_params"
   | "missing_oauth_cookies"
@@ -132,6 +135,7 @@ function clearPkceAndRedirect(
 ): NextResponse {
   const response = NextResponse.redirect(buildCallbackRedirectUrl(request, false, reason));
   clearPkceCookies(response);
+  response.headers.set("Cache-Control", "no-store, max-age=0");
   return response;
 }
 
@@ -221,6 +225,7 @@ export async function GET(request: NextRequest) {
       maxAge: 60 * 60 * 24 * 90,
       path: "/",
     });
+    response.headers.set("Cache-Control", "no-store, max-age=0");
 
     return response;
   } catch (error) {

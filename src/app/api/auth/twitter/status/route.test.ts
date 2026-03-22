@@ -17,6 +17,13 @@ const FUTURE = String(Date.now() + 60_000);
 const PAST = String(Date.now() - 1_000);
 
 describe("GET /api/auth/twitter/status", () => {
+  it("runs dynamically in the node runtime so cookie-based auth status is not cached", async () => {
+    const routeModule = await import("./route");
+
+    expect(routeModule.dynamic).toBe("force-dynamic");
+    expect(routeModule.runtime).toBe("nodejs");
+  });
+
   it("returns connected=true with handle when all valid cookies are present", async () => {
     const response = await GET(
       makeRequest({

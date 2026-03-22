@@ -33,4 +33,11 @@ describe("GET /api/auth/twitter", () => {
       "http://localhost:3001/api/auth/twitter/callback"
     );
   });
+
+  it("runs dynamically in the node runtime so OAuth state is never cached", async () => {
+    const routeModule = await import("./route");
+
+    expect(routeModule.dynamic).toBe("force-dynamic");
+    expect(routeModule.runtime).toBe("nodejs");
+  });
 });

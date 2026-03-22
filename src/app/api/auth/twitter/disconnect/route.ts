@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { TWITTER_OAUTH_CALLBACK_COOKIE } from "@/lib/twitterAuth";
 
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 function clearTwitterCookies(response: NextResponse) {
   const names = [
     "x_access_token",
@@ -21,6 +24,7 @@ function clearTwitterCookies(response: NextResponse) {
 function redirectHome(request: NextRequest): NextResponse {
   const response = NextResponse.redirect(new URL("/", request.url));
   clearTwitterCookies(response);
+  response.headers.set("Cache-Control", "no-store, max-age=0");
   return response;
 }
 
