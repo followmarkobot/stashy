@@ -87,7 +87,11 @@ function IssueCard({
 }
 
 /* ─── Main Component ─── */
-export default function SubstackLayout() {
+export default function SubstackLayout({
+  onOpenDashboard,
+}: {
+  onOpenDashboard?: () => void;
+}) {
   const [email, setEmail] = useState("");
 
   const latestIssue = mockIssues.find((issue) => issue.isLatest);
@@ -125,6 +129,15 @@ export default function SubstackLayout() {
             <p className="text-sm text-[rgb(113,118,123)] mt-3">
               Free. Delivered every Thursday. No spam, ever.
             </p>
+            {onOpenDashboard ? (
+              <button
+                type="button"
+                onClick={onOpenDashboard}
+                className="mt-5 inline-flex items-center justify-center rounded-full border border-[rgb(47,51,54)] px-5 py-2.5 text-sm font-medium text-[rgb(231,233,234)] transition-colors hover:border-[rgb(29,155,240)]/50 hover:bg-[rgb(22,24,28)]"
+              >
+                Open dashboard
+              </button>
+            ) : null}
           </div>
         </div>
       </header>

@@ -1,8 +1,8 @@
-export type ViewMode = "digest" | "twitter" | "facebook";
+export type ViewMode = "digest" | "twitter" | "facebook" | "newsletter";
 
 export const TAB_STORAGE_KEY = "stashy.activeView";
 
-const VALID_VIEWS = new Set<ViewMode>(["digest", "twitter", "facebook"]);
+const VALID_VIEWS = new Set<ViewMode>(["digest", "twitter", "facebook", "newsletter"]);
 
 export function getStoredView(storage: Storage | null): ViewMode {
   if (!storage) {

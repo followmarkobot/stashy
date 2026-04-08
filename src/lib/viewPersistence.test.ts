@@ -44,6 +44,11 @@ describe("viewPersistence", () => {
     expect(getStoredView(storage)).toBe("facebook");
   });
 
+  it("accepts newsletter as a saved valid tab", () => {
+    const storage = createStorage({ [TAB_STORAGE_KEY]: "newsletter" });
+    expect(getStoredView(storage)).toBe("newsletter");
+  });
+
   it("falls back to digest for invalid saved value", () => {
     const storage = createStorage({ [TAB_STORAGE_KEY]: "unknown" });
     expect(getStoredView(storage)).toBe("digest");

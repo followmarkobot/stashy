@@ -54,3 +54,34 @@ body {
 .animate-slide-down {
   animation: slide-down 0.3s ease-out;
 }
+
+.editor-body[data-placeholder]:empty::before {
+  content: attr(data-placeholder);
+  color: #5c5c5c;
+  pointer-events: none;
+}
+
+.editor-body p,
+.editor-body ul,
+.editor-body ol,
+.editor-body blockquote,
+.editor-body h2 {
+  margin: 0 0 20px;
+}
+
+.editor-body ul,
+.editor-body ol {
+  padding-left: 1.4em;
+}
+
+.editor-body blockquote {
+  border-left: 2px solid #303030;
+  color: #bcbcbc;
+  padding-left: 16px;
+}
+
+.editor-body h2 {
+  color: #f0f0f0;
+  font-size: 1.8rem;
+  line-height: 1.3;
+}

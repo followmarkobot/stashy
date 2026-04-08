@@ -63,6 +63,24 @@ export default function LeftSidebar({ onShowOnboarding }: LeftSidebarProps) {
     }
   };
 
+  const renderNavIcon = (itemId: ViewMode, isActive: boolean) => {
+    const className = `w-6 h-6 ${isActive ? "text-[rgb(29,155,240)]" : "text-current"}`;
+
+    if (itemId === "digest") {
+      return <DigestIcon className={className} />;
+    }
+
+    if (itemId === "twitter") {
+      return <XIcon className={className} />;
+    }
+
+    if (itemId === "facebook") {
+      return <FacebookIcon className={className} />;
+    }
+
+    return <FacebookIcon className={className} />;
+  };
+
   return (
     <>
       {/* Desktop sidebar */}
@@ -84,7 +102,7 @@ export default function LeftSidebar({ onShowOnboarding }: LeftSidebarProps) {
         {/* Nav items */}
         <nav className="flex-1 px-2 py-2 space-y-1">
           {navItems.map((item) => {
-            const isActive = view === item.id;
+            const isActive = item.id === "digest" ? view === "digest" || view === "newsletter" : view === item.id;
             return (
               <button
                 key={item.id}
@@ -96,25 +114,7 @@ export default function LeftSidebar({ onShowOnboarding }: LeftSidebarProps) {
                 }`}
               >
                 <div className="relative shrink-0 w-7 h-7 flex items-center justify-center">
-                  {item.id === "digest" ? (
-                    <DigestIcon
-                      className={`w-6 h-6 ${
-                        isActive ? "text-[rgb(29,155,240)]" : "text-current"
-                      }`}
-                    />
-                  ) : item.id === "twitter" ? (
-                    <XIcon
-                      className={`w-6 h-6 ${
-                        isActive ? "text-[rgb(29,155,240)]" : "text-current"
-                      }`}
-                    />
-                  ) : (
-                    <FacebookIcon
-                      className={`w-6 h-6 ${
-                        isActive ? "text-[rgb(29,155,240)]" : "text-current"
-                      }`}
-                    />
-                  )}
+                  {renderNavIcon(item.id, isActive)}
                   {isActive && (
                     <div className="absolute -left-1 top-1/2 -translate-y-1/2 w-1 h-4 bg-[rgb(29,155,240)] rounded-full" />
                   )}
@@ -185,7 +185,7 @@ export default function LeftSidebar({ onShowOnboarding }: LeftSidebarProps) {
       {/* Mobile bottom nav */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-black border-t border-[rgb(47,51,54)] flex">
         {navItems.map((item) => {
-          const isActive = view === item.id;
+          const isActive = item.id === "digest" ? view === "digest" || view === "newsletter" : view === item.id;
           return (
             <button
               key={item.id}
@@ -196,13 +196,7 @@ export default function LeftSidebar({ onShowOnboarding }: LeftSidebarProps) {
                   : "text-[rgb(113,118,123)]"
               }`}
             >
-              {item.id === "digest" ? (
-                <DigestIcon className="w-6 h-6" />
-              ) : item.id === "twitter" ? (
-                <XIcon className="w-6 h-6" />
-              ) : (
-                <FacebookIcon className="w-6 h-6" />
-              )}
+              {renderNavIcon(item.id, isActive)}
               <span className="text-[10px] font-medium">{item.label}</span>
             </button>
           );

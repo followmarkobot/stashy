@@ -5,18 +5,32 @@ import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // --- Hoisted controllable mocks (run before vi.mock factories) ---
-const { searchParamsGet, checkStatusMock } = vi.hoisted(() => ({
-  searchParamsGet: vi.fn(() => null as string | null),
+const { searchParamsGet, checkStatusMock, setViewMock, pushMock, currentView } = vi.hoisted(() => ({
+  searchParamsGet: vi.fn<(key: string) => string | null>(() => null),
   checkStatusMock: vi.fn(),
+  setViewMock: vi.fn(),
+  pushMock: vi.fn(),
+  currentView: { value: "twitter" as string },
 }));
+
+const reactActEnvironment = globalThis as typeof globalThis & {
+  IS_REACT_ACT_ENVIRONMENT?: boolean;
+};
 
 // --- Module mocks ---
 vi.mock("next/navigation", () => ({
   useSearchParams: () => ({ get: searchParamsGet }),
+  useRouter: () => ({ push: pushMock }),
 }));
 
 vi.mock("../contexts/ViewContext", () => ({
-  useView: () => ({ view: "twitter" }),
+  useView: () => ({
+    view: currentView.value,
+    setView: (nextView: string) => {
+      currentView.value = nextView;
+      setViewMock(nextView);
+    },
+  }),
 }));
 
 vi.mock("../contexts/XAuthContext", () => ({
@@ -33,7 +47,18 @@ vi.mock("../components/FacebookCard", () => ({ default: () => <div>FacebookCard<
 vi.mock("../components/FacebookLayout", () => ({
   default: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
-vi.mock("../components/SubstackLayout", () => ({ default: () => <div>SubstackLayout</div> }));
+vi.mock("../components/SubstackLayout", () => ({
+  default: ({ onOpenDashboard }: { onOpenDashboard?: () => void }) => (
+    <div>
+      <div>SubstackLayout</div>
+      {onOpenDashboard ? (
+        <button type="button" onClick={onOpenDashboard}>
+          Open dashboard
+        </button>
+      ) : null}
+    </div>
+  ),
+}));
 vi.mock("../components/UpgradeBanner", () => ({ default: () => <div>UpgradeBanner</div> }));
 vi.mock("../components/PricingModal", () => ({ default: () => null }));
 vi.mock("../components/ArticleReaderView", () => ({ default: () => null }));
@@ -114,6 +139,9 @@ function teardownDOM() {
   searchParamsGet.mockReset();
   searchParamsGet.mockImplementation(() => null);
   checkStatusMock.mockReset();
+  setViewMock.mockReset();
+  pushMock.mockReset();
+  currentView.value = "twitter";
   capturedOnResultsChange = null;
   latestTweetFeedProps = {};
   vi.clearAllMocks();
@@ -130,7 +158,7 @@ async function renderHome() {
 // ---------------------------------------------------------------------------
 describe("Home semantic search visibility", () => {
   beforeEach(() => {
-    globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+    reactActEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
     vi.stubGlobal("localStorage", {
       getItem: vi.fn(() => null),
       setItem: vi.fn(),
@@ -161,12 +189,69 @@ describe("Home semantic search visibility", () => {
   });
 });
 
+describe("Newsletter dashboard view", () => {
+  beforeEach(() => {
+    reactActEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
+    currentView.value = "newsletter";
+    vi.stubGlobal("localStorage", { getItem: vi.fn(() => "true"), setItem: vi.fn() });
+    setupDOM();
+  });
+
+  afterEach(teardownDOM);
+
+  it("renders the newsletter dashboard shell with overview, latest post, drafts, and help CTA", async () => {
+    await renderHome();
+
+    expect(container.textContent).toContain("Sam's Substack");
+    expect(container.textContent).toContain("Overview");
+    expect(container.textContent).toContain("Latest post");
+    expect(container.textContent).toContain("Drafts");
+    expect(container.textContent).toContain("Ask a question");
+  });
+
+  it("opens the dashboard from the digest view", async () => {
+    currentView.value = "digest";
+
+    await renderHome();
+
+    const openDashboardButton = Array.from(container.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Open dashboard")
+    ) as HTMLButtonElement | undefined;
+
+    expect(openDashboardButton).toBeDefined();
+
+    await act(async () => {
+      openDashboardButton?.click();
+    });
+
+    expect(setViewMock).toHaveBeenCalledWith("newsletter");
+    await renderHome();
+    expect(container.textContent).toContain("Sam's Substack");
+  });
+
+  it("navigates to the new editor route from the dashboard", async () => {
+    await renderHome();
+
+    const newPostButton = Array.from(container.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("New post")
+    ) as HTMLButtonElement | undefined;
+
+    expect(newPostButton).toBeDefined();
+
+    await act(async () => {
+      newPostButton?.click();
+    });
+
+    expect(pushMock).toHaveBeenCalledWith("/editor/new");
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Onboarding modal (usePageModals)
 // ---------------------------------------------------------------------------
 describe("Onboarding modal", () => {
   beforeEach(() => {
-    globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+    reactActEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
     setupDOM();
   });
 
@@ -213,7 +298,7 @@ describe("Onboarding modal", () => {
 // ---------------------------------------------------------------------------
 describe("URL param effects", () => {
   beforeEach(() => {
-    globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+    reactActEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
     // Treat onboarding as already seen so it doesn't interfere
     vi.stubGlobal("localStorage", { getItem: vi.fn(() => "true"), setItem: vi.fn() });
     setupDOM();
@@ -290,7 +375,7 @@ describe("URL param effects", () => {
 // ---------------------------------------------------------------------------
 describe("Semantic state reset on source change", () => {
   beforeEach(() => {
-    globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+    reactActEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
     vi.stubGlobal("localStorage", { getItem: vi.fn(() => "true"), setItem: vi.fn() });
     setupDOM();
   });

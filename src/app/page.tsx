@@ -1,12 +1,14 @@
 "use client";
 
 import { Suspense, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import TweetFeed from "../components/TweetFeed";
 import LeftSidebar from "../components/LeftSidebar";
 import TweetCard from "../components/TweetCard";
 import FacebookCard from "../components/FacebookCard";
 import FacebookLayout from "../components/FacebookLayout";
 import SubstackLayout from "../components/SubstackLayout";
+import NewsletterDashboard from "../components/NewsletterDashboard";
 import UpgradeBanner from "../components/UpgradeBanner";
 import PricingModal from "../components/PricingModal";
 import OnboardingModal from "../components/OnboardingModal";
@@ -24,7 +26,8 @@ import { usePageModals } from "../hooks/usePageModals";
 export const dynamic = "force-dynamic";
 
 function HomeContent() {
-  const { view } = useView();
+  const router = useRouter();
+  const { view, setView } = useView();
   const [dataSource, setDataSource] = useState<DataSource>("stash");
   const [articleUrl, setArticleUrl] = useState<string | null>(null);
   const [articleTweet, setArticleTweet] = useState<Tweet | null>(null);
@@ -33,6 +36,7 @@ function HomeContent() {
   const modals = usePageModals({ onXConnected: () => setDataSource("bookmarks") });
 
   const isDigest = view === "digest";
+  const isNewsletter = view === "newsletter";
   const isFacebook = view === "facebook";
 
   const twitterTitle = useMemo(
@@ -73,7 +77,14 @@ function HomeContent() {
 
         {isDigest ? (
           <div className="pb-16 transition-all duration-200 md:ml-[68px] md:pb-0 lg:ml-[240px]">
-            <SubstackLayout />
+            <SubstackLayout onOpenDashboard={() => setView("newsletter")} />
+          </div>
+        ) : isNewsletter ? (
+          <div className="pb-16 transition-all duration-200 md:ml-[68px] md:pb-0 lg:ml-[240px]">
+            <NewsletterDashboard
+              onViewSite={() => setView("digest")}
+              onNewPost={() => router.push("/editor/new")}
+            />
           </div>
         ) : isFacebook ? (
           <div className="pb-16 transition-all duration-200 md:ml-[68px] md:pb-0 lg:ml-[240px]">
