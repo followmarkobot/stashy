@@ -82,4 +82,37 @@ describe("POST /api/posts", () => {
     });
     expect(body.post.id).toBe("post-1");
   });
+
+  it("falls back to x_user_id when the user handle cookie is missing", async () => {
+    const supabase = {};
+    getServiceSupabaseMock.mockReturnValue(supabase);
+    createDraftPostWithClientMock.mockResolvedValue({
+      id: "post-2",
+      title: "",
+      subtitle: "",
+      content: "",
+      author_id: "user-42",
+      user_id: "User_42",
+      authors: ["User_42"],
+      status: "draft",
+      created_at: "2026-03-22T18:00:00.000Z",
+      updated_at: "2026-03-22T18:00:00.000Z",
+    });
+
+    const { POST } = await import("./route");
+    const response = await POST(
+      makeRequest({
+        x_user_id: "User_42",
+      })
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(201);
+    expect(createDraftPostWithClientMock).toHaveBeenCalledWith(supabase, {
+      authorId: "user-42",
+      authors: ["User_42"],
+      userId: "User_42",
+    });
+    expect(body.post.id).toBe("post-2");
+  });
 });

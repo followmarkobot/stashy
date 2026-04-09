@@ -88,7 +88,11 @@ function normalizeAuthors(inputAuthors?: string[], authorId?: string): string[] 
   return [DEFAULT_AUTHOR_NAME];
 }
 
-function normalizeInput(input: DraftPostInput) {
+function hasOwn(input: DraftPostInput, key: keyof DraftPostInput): boolean {
+  return Object.prototype.hasOwnProperty.call(input, key);
+}
+
+function normalizeCreateInput(input: DraftPostInput) {
   const authors = normalizeAuthors(input.authors, input.authorId);
   const primaryAuthor = authors[0] ?? DEFAULT_AUTHOR_NAME;
   const authorId = input.authorId?.trim() || slugifyAuthor(primaryAuthor);
@@ -101,6 +105,44 @@ function normalizeInput(input: DraftPostInput) {
     authors,
     status: "draft" as const,
   };
+}
+
+function normalizePatchInput(input: DraftPostInput) {
+  const payload: {
+    title?: string;
+    subtitle?: string;
+    content?: string;
+    author_id?: string;
+    authors?: string[];
+  } = {};
+
+  if (hasOwn(input, "title")) {
+    payload.title = input.title ?? "";
+  }
+
+  if (hasOwn(input, "subtitle")) {
+    payload.subtitle = input.subtitle ?? "";
+  }
+
+  if (hasOwn(input, "content")) {
+    payload.content = input.content ?? "";
+  }
+
+  if (hasOwn(input, "authorId") || hasOwn(input, "authors")) {
+    const authors = normalizeAuthors(
+      hasOwn(input, "authors") ? input.authors : undefined,
+      hasOwn(input, "authorId") ? input.authorId : undefined
+    );
+    const primaryAuthor = authors[0] ?? DEFAULT_AUTHOR_NAME;
+
+    payload.author_id =
+      hasOwn(input, "authorId") && input.authorId?.trim()
+        ? input.authorId.trim()
+        : slugifyAuthor(primaryAuthor);
+    payload.authors = authors;
+  }
+
+  return payload;
 }
 
 export function normalizePostRow(row: PostRow): Post {
@@ -131,7 +173,7 @@ export async function createDraftPostWithClient(
   const { data, error } = await supabase
     .from("posts")
     .insert({
-      ...normalizeInput(input),
+      ...normalizeCreateInput(input),
       user_id: input.userId,
     })
     .select()
@@ -174,7 +216,7 @@ export async function saveDraftPostWithClient(
   userId: string
 ): Promise<Post | null> {
   const payload = {
-    ...normalizeInput(input),
+    ...normalizePatchInput(input),
     updated_at: new Date().toISOString(),
   };
 

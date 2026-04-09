@@ -8,21 +8,40 @@ import { getServiceSupabase } from "@/lib/serviceSupabase";
 
 export const runtime = "nodejs";
 
+function hasOwn(payload: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(payload, key);
+}
+
 function parseDraftPayload(body: unknown): DraftPostInput {
   const payload: Record<string, unknown> =
     typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
-  const authorsValue = Array.isArray(payload.authors)
-    ? (payload.authors as unknown[])
-        .filter((value): value is string => typeof value === "string")
-    : [];
+  const draft: DraftPostInput = {};
 
-  return {
-    title: typeof payload.title === "string" ? payload.title : "",
-    subtitle: typeof payload.subtitle === "string" ? payload.subtitle : "",
-    content: typeof payload.content === "string" ? payload.content : "",
-    authorId: typeof payload.authorId === "string" ? payload.authorId : "",
-    authors: authorsValue,
-  };
+  if (hasOwn(payload, "title")) {
+    draft.title = typeof payload.title === "string" ? payload.title : "";
+  }
+
+  if (hasOwn(payload, "subtitle")) {
+    draft.subtitle = typeof payload.subtitle === "string" ? payload.subtitle : "";
+  }
+
+  if (hasOwn(payload, "content")) {
+    draft.content = typeof payload.content === "string" ? payload.content : "";
+  }
+
+  if (hasOwn(payload, "authorId")) {
+    draft.authorId = typeof payload.authorId === "string" ? payload.authorId : "";
+  }
+
+  if (hasOwn(payload, "authors")) {
+    draft.authors = Array.isArray(payload.authors)
+      ? (payload.authors as unknown[]).filter(
+          (value): value is string => typeof value === "string"
+        )
+      : [];
+  }
+
+  return draft;
 }
 
 export async function GET(

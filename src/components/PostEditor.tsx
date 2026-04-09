@@ -425,6 +425,17 @@ export default function PostEditor({ mode, postId }: PostEditorProps) {
           <div className="flex items-center gap-2">
             <button
               type="button"
+              onClick={() => setEditorMode("write")}
+              className={`rounded-full px-4 py-2 text-[13px] font-medium transition ${
+                editorMode === "write"
+                  ? "bg-[#f3f3f3] text-[#111111]"
+                  : "border border-[#2b2b2b] text-[#c7c7c7] hover:border-[#434343] hover:text-white"
+              }`}
+            >
+              Write
+            </button>
+            <button
+              type="button"
               onClick={() => setEditorMode("preview")}
               className={`rounded-full px-4 py-2 text-[13px] font-medium transition ${
                 editorMode === "preview"
@@ -573,10 +584,10 @@ export default function PostEditor({ mode, postId }: PostEditorProps) {
             <div className="mt-6 flex flex-col gap-3">
               <button
                 type="button"
-                onClick={() => setEditorMode("preview")}
+                onClick={() => setEditorMode(editorMode === "write" ? "preview" : "write")}
                 className="rounded-full border border-[#2d2d2d] px-4 py-3 text-[13px] font-medium text-[#d8d8d8] transition hover:border-[#454545] hover:text-white"
               >
-                Open preview
+                {editorMode === "write" ? "Open preview" : "Return to editor"}
               </button>
               <button
                 type="button"

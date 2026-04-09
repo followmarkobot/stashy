@@ -175,7 +175,7 @@ describe("getPostByIdWithClient", () => {
 });
 
 describe("saveDraftPostWithClient", () => {
-  it("persists the latest editor fields and keeps the record as a draft", async () => {
+  it("persists the latest editor fields without rewriting status during an ordinary save", async () => {
     const { supabase, calls } = createUpdateMock({
       data: {
         id: "post-1",
@@ -216,8 +216,85 @@ describe("saveDraftPostWithClient", () => {
       content: "<p>Body</p>",
       author_id: "marko",
       authors: ["Marko", "Ana"],
-      status: "draft",
     });
+    expect(calls[0].values).not.toHaveProperty("status");
+    expect(calls[0].values.updated_at).toEqual(expect.any(String));
+  });
+
+  it("updates only the fields provided by a partial patch payload without touching status", async () => {
+    const { supabase, calls } = createUpdateMock({
+      data: {
+        id: "post-1",
+        title: "Updated",
+        subtitle: "Existing subtitle",
+        content: "<p>Existing body</p>",
+        author_id: "marko",
+        user_id: "user-1",
+        authors: ["Marko", "Ana"],
+        status: "draft",
+        created_at: "2026-03-22T18:00:00.000Z",
+        updated_at: "2026-03-22T18:03:00.000Z",
+      },
+      error: null,
+    });
+
+    const result = await saveDraftPostWithClient(
+      supabase,
+      "post-1",
+      { title: "Updated" },
+      "user-1"
+    );
+
+    if (!result) {
+      throw new Error("Expected saved draft to be returned.");
+    }
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].values).toMatchObject({
+      title: "Updated",
+    });
+    expect(calls[0].values).not.toHaveProperty("subtitle");
+    expect(calls[0].values).not.toHaveProperty("content");
+    expect(calls[0].values).not.toHaveProperty("author_id");
+    expect(calls[0].values).not.toHaveProperty("authors");
+    expect(calls[0].values).not.toHaveProperty("status");
+    expect(calls[0].values.updated_at).toEqual(expect.any(String));
+  });
+
+  it("does not demote a published post during an editor autosave", async () => {
+    const { supabase, calls } = createUpdateMock({
+      data: {
+        id: "post-1",
+        title: "Updated title",
+        subtitle: "Published subtitle",
+        content: "<p>Published body</p>",
+        author_id: "marko",
+        user_id: "user-1",
+        authors: ["Marko"],
+        status: "published",
+        created_at: "2026-03-22T18:00:00.000Z",
+        updated_at: "2026-03-22T18:04:00.000Z",
+      },
+      error: null,
+    });
+
+    const result = await saveDraftPostWithClient(
+      supabase,
+      "post-1",
+      { title: "Updated title" },
+      "user-1"
+    );
+
+    if (!result) {
+      throw new Error("Expected saved post to be returned.");
+    }
+
+    expect(result.status).toBe("published");
+    expect(calls).toHaveLength(1);
+    expect(calls[0].values).toMatchObject({
+      title: "Updated title",
+    });
+    expect(calls[0].values).not.toHaveProperty("status");
     expect(calls[0].values.updated_at).toEqual(expect.any(String));
   });
 
