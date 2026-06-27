@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "test": "vitest run",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "extract-bookmark-knowledge": "node scripts/extract-bookmark-knowledge.js"
   },
   "dependencies": {
     "@mozilla/readability": "^0.6.0",
