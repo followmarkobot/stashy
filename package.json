@@ -9,7 +9,8 @@
     "lint": "next lint",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "extract-bookmark-knowledge": "node scripts/extract-bookmark-knowledge.js"
+    "extract-bookmark-knowledge": "node scripts/extract-bookmark-knowledge.js",
+    "audit-corpus": "node scripts/audit-corpus.js"
   },
   "dependencies": {
     "@mozilla/readability": "^0.6.0",
