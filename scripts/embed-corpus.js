@@ -31,6 +31,11 @@ const MODEL = process.env.EMBED_MODEL || "text-embedding-3-small";
 const BATCH = Math.max(1, parseInt(process.env.EMBED_BATCH || "32", 10));
 const LIMIT = process.env.EMBED_LIMIT ? parseInt(process.env.EMBED_LIMIT, 10) : Infinity;
 const SKIP_ENRICHED = /^(1|true|yes)$/i.test(process.env.EMBED_SKIP_ENRICHED || "");
+// By default Pass B only (re)embeds enriched rows whose embedding is null —
+// enrich-corpus nulls the embedding when it writes new text, so this stays a
+// no-op once everything is current. Set EMBED_FORCE_ENRICHED=1 to rebuild every
+// enriched row's vector regardless (manual full rebuild).
+const FORCE_ENRICHED = /^(1|true|yes)$/i.test(process.env.EMBED_FORCE_ENRICHED || "");
 const DRY_RUN = /^(1|true|yes)$/i.test(process.env.EMBED_DRY_RUN || "");
 // text-embedding-3-small caps at 8191 tokens/input. ~24k chars stays safely
 // under that even for dense text, while keeping tweet+image text intact.
@@ -242,12 +247,15 @@ async function main() {
     q.is("embedding", null).is("image_text", null).is("article_content", null), stats
   );
 
-  // Pass B: enriched rows -> combined text, forced (rebuild stale/absent vectors).
+  // Pass B: enriched rows -> combined text. By default only those missing an
+  // embedding (enrichment nulls it when it writes new text); FORCE_ENRICHED
+  // rebuilds every enriched row's vector.
   let passB = { processed: 0, skipped: 0, failed: 0 };
   if (!SKIP_ENRICHED && stats.processed < LIMIT) {
-    passB = await runPass("B:enriched", supabase, openai, (q) =>
-      q.or("image_text.not.is.null,article_content.not.is.null"), stats
-    );
+    passB = await runPass("B:enriched", supabase, openai, (q) => {
+      const enriched = q.or("image_text.not.is.null,article_content.not.is.null");
+      return FORCE_ENRICHED ? enriched : enriched.is("embedding", null);
+    }, stats);
   }
 
   // Verify remaining gap.
@@ -270,9 +278,11 @@ async function main() {
     `| No-text rows skipped | ${passA.skipped + passB.skipped} |\n` +
     `| Failed | ${passA.failed + passB.failed} |\n` +
     `| Still missing embedding | ${stillNull} |\n\n` +
-    `Pass B force-rebuilds embeddings for every row carrying OCR'd \`image_text\` ` +
-    `or archived \`article_content\`, so the enriched corpus is now searchable by ` +
-    `vector similarity, not just the raw tweet text.\n`;
+    `Pass B embeds rows carrying OCR'd \`image_text\` or archived \`article_content\` ` +
+    `using the combined text, so image-only alpha and linked articles are searchable ` +
+    `by vector similarity — not just the raw tweet text.` +
+    (FORCE_ENRICHED ? " (Ran with EMBED_FORCE_ENRICHED — every enriched row rebuilt.)" : "") +
+    `\n`;
 
   if (!DRY_RUN) fs.writeFileSync(path.join(process.cwd(), "corpus-embedding-report.md"), report);
   console.log("\n" + report);

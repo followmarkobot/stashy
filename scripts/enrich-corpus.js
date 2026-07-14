@@ -434,7 +434,12 @@ async function main() {
               "utf8"
             );
             if (!DRY_RUN) {
-              const { error } = await supabase.from("tweets").update({ image_text: ocr.trim() }).eq("tweet_id", t.tweet_id);
+              // Null the embedding so the embed pass rebuilds it with this new
+              // image text included (a stale tweet_text-only vector would hide it).
+              const { error } = await supabase
+                .from("tweets")
+                .update({ image_text: ocr.trim(), embedding: null })
+                .eq("tweet_id", t.tweet_id);
               if (error) throw new Error(`db image_text: ${error.message}`);
             }
             stats.imageOcrWritten += 1;
@@ -467,7 +472,12 @@ async function main() {
               const fname = `${t.tweet_id}__${slugHost(res.meta.find((m) => m.ok)?.finalUrl || cands[0])}.md`;
               fs.writeFileSync(path.join(OUT_DIR, "articles", fname), res.content, "utf8");
               if (!DRY_RUN) {
-                const { error } = await supabase.from("tweets").update({ article_content: res.content }).eq("tweet_id", t.tweet_id);
+                // Null the embedding so the embed pass rebuilds it with the
+                // archived article text included.
+                const { error } = await supabase
+                  .from("tweets")
+                  .update({ article_content: res.content, embedding: null })
+                  .eq("tweet_id", t.tweet_id);
                 if (error) throw new Error(`db article_content: ${error.message}`);
               }
               stats.articleWritten += 1;

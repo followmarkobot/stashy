@@ -1,0 +1,39 @@
+name: Refresh corpus
+
+# Keeps the bookmark corpus enriched (OCR image text + archived articles) and
+# fully embedded for semantic search. New bookmarks are embedded inline at sync
+# time; this job handles the slower OCR/article enrichment and re-embeds what it
+# enriches. Both underlying scripts are incremental, so each run only does the
+# new work.
+
+on:
+  schedule:
+    - cron: "0 */6 * * *" # every 6 hours
+  workflow_dispatch: {} # allow manual runs from the Actions tab
+
+concurrency:
+  group: refresh-corpus
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - run: npm ci
+
+      - name: Enrich + embed new corpus rows
+        run: npm run refresh-corpus
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OWNER_USER_ID: ${{ secrets.OWNER_USER_ID }}
