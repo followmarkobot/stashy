@@ -10,7 +10,9 @@
     "test": "vitest run",
     "test:e2e": "playwright test",
     "extract-bookmark-knowledge": "node scripts/extract-bookmark-knowledge.js",
-    "audit-corpus": "node scripts/audit-corpus.js"
+    "audit-corpus": "node scripts/audit-corpus.js",
+    "enrich-corpus": "node scripts/enrich-corpus.js",
+    "embed-corpus": "node scripts/embed-corpus.js"
   },
   "dependencies": {
     "@mozilla/readability": "^0.6.0",
