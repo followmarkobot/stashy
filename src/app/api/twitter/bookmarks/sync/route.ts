@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { mapXBookmarksToTweets } from "@/lib/twitter";
 import { persistBookmarksForOwnerWithClient } from "@/lib/bookmarkPersistence";
+import { embedNewTweetsByTweetId } from "@/lib/corpusEmbedding";
 import type { Tweet } from "@/lib/supabase";
 
 export const runtime = "nodejs";
@@ -99,11 +100,34 @@ export async function POST(request: NextRequest) {
     );
     const persistence = await persistBookmarks(userId, tweets);
 
+    // Embed the just-synced tweets so new bookmarks are immediately searchable.
+    // Best-effort: embedding failures (or a missing OPENAI_API_KEY) must never
+    // fail the sync itself. Only rows still missing an embedding are touched;
+    // the slower OCR/article enrichment + re-embed runs out of band (cron).
+    let embedded_count = 0;
+    const openaiApiKey = process.env.OPENAI_API_KEY;
+    if (openaiApiKey && tweets.length) {
+      try {
+        const supabase = getServiceSupabase();
+        if (supabase) {
+          const { embedded } = await embedNewTweetsByTweetId(
+            supabase,
+            openaiApiKey,
+            tweets.map((tweet) => tweet.tweet_id)
+          );
+          embedded_count = embedded;
+        }
+      } catch (embedError) {
+        console.error("Post-sync embedding failed (non-fatal):", embedError);
+      }
+    }
+
     return NextResponse.json({
       status: "ok",
       fetched_count: tweets.length,
       persisted_count: persistence.membership_upserted,
       canonical_upserted: persistence.canonical_upserted,
+      embedded_count,
       bookmarks_collection_id: persistence.bookmarks_collection_id,
       retried_without_optional_fields: persistence.retried_without_optional_fields,
       used_legacy_owner_column: persistence.used_legacy_owner_column,
