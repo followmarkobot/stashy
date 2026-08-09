@@ -13,7 +13,13 @@
     "audit-corpus": "node scripts/audit-corpus.js",
     "enrich-corpus": "node scripts/enrich-corpus.js",
     "embed-corpus": "node scripts/embed-corpus.js",
-    "refresh-corpus": "node scripts/refresh-corpus.js"
+    "refresh-corpus": "node scripts/refresh-corpus.js",
+    "growth-advisor-bot": "node scripts/growth-advisor-bot.js",
+    "dedup-corpus": "node scripts/dedup-corpus.js",
+    "tag-corpus": "node scripts/tag-corpus.js",
+    "tag-corpus-codex": "node scripts/tag-corpus-codex.js",
+    "cluster-corpus": "node scripts/cluster-corpus.js",
+    "export-corpus-csv": "node scripts/export-corpus-csv.js"
   },
   "dependencies": {
     "@mozilla/readability": "^0.6.0",

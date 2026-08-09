@@ -9,14 +9,18 @@
  * Required env (.env.local or shell):
  *   SUPABASE_URL (or NEXT_PUBLIC_SUPABASE_URL)
  *   SUPABASE_SERVICE_KEY
- *   ANTHROPIC_API_KEY
+ *
+ * Topic analysis runs through the local Claude Code CLI (see claude-cli.js), so
+ * it bills to the Claude subscription rather than Developer Platform credits.
+ * No ANTHROPIC_API_KEY needed.
  */
 
 const fs = require("fs");
 const path = require("path");
 const { createClient } = require("@supabase/supabase-js");
+const { askClaude } = require("./claude-cli");
 
-const MODEL = "claude-haiku-4-5-20251001"; // fast/cheap for analysis
+const MODEL = "haiku"; // CLI alias; fast/cheap for a single analysis call
 const OUTPUT_PATH = path.join(process.cwd(), "corpus-audit-report.md");
 
 function loadEnvLocal() {
@@ -39,43 +43,61 @@ function loadEnvLocal() {
   }
 }
 
-async function fetchBookmarksCollectionId(supabase, ownerUserId) {
-  const modern = await supabase
-    .from("collections")
-    .select("id")
-    .eq("owner_user_id", ownerUserId)
-    .eq("slug", "bookmarks")
-    .maybeSingle();
-  if (!modern.error && modern.data?.id) return modern.data.id;
-
-  const legacy = await supabase
-    .from("collections")
-    .select("id")
-    .eq("owner_x_user_id", ownerUserId)
-    .eq("slug", "bookmarks")
-    .maybeSingle();
-  if (!legacy.error && legacy.data?.id) return legacy.data.id;
-  return null;
+/**
+ * Resolve the collections that make up the corpus. Defaults to both ingest
+ * paths: `bookmarks` (uncurated X sync) and `curated` (chrome-extension saves).
+ * Override with COLLECTIONS=bookmarks to audit a single collection.
+ */
+async function fetchCollectionIds(supabase, ownerUserId) {
+  const slugs = (process.env.COLLECTIONS || "bookmarks,curated")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const found = [];
+  for (const slug of slugs) {
+    let id = null;
+    for (const col of ["owner_user_id", "owner_x_user_id"]) {
+      const { data, error } = await supabase
+        .from("collections")
+        .select("id")
+        .eq(col, ownerUserId)
+        .eq("slug", slug)
+        .maybeSingle();
+      if (!error && data?.id) {
+        id = data.id;
+        break;
+      }
+    }
+    if (id) found.push({ slug, id });
+  }
+  return found;
 }
 
-async function fetchAllBookmarks(supabase, collectionId) {
+async function fetchAllBookmarks(supabase, collectionIds) {
   const pageSize = 100;
-  let offset = 0;
-  const allIds = [];
+  const idSet = new Set();
 
-  while (true) {
-    const { data: rows, error } = await supabase
-      .from("collection_tweets")
-      .select("tweet_id")
-      .eq("collection_id", collectionId)
-      .order("added_at", { ascending: false })
-      .range(offset, offset + pageSize - 1);
-    if (error) throw new Error(`collection_tweets fetch failed: ${error.message}`);
-    if (!rows?.length) break;
-    allIds.push(...rows.map((r) => r.tweet_id).filter(Boolean));
-    if (rows.length < pageSize) break;
-    offset += pageSize;
+  for (const { id } of collectionIds) {
+    let offset = 0;
+    while (true) {
+      const { data: rows, error } = await supabase
+        .from("collection_tweets")
+        .select("tweet_id")
+        .eq("collection_id", id)
+        // Bulk-linked rows share one added_at, so that sort is all ties and
+        // range pagination silently skips/repeats rows. tweet_id breaks the tie.
+        .order("added_at", { ascending: false })
+        .order("tweet_id", { ascending: true })
+        .range(offset, offset + pageSize - 1);
+      if (error) throw new Error(`collection_tweets fetch failed: ${error.message}`);
+      if (!rows?.length) break;
+      rows.forEach((r) => r.tweet_id && idSet.add(r.tweet_id));
+      if (rows.length < pageSize) break;
+      offset += pageSize;
+    }
   }
+  // A tweet can be curated and bookmarked; count it once.
+  const allIds = [...idSet];
 
   const tweets = [];
   for (let i = 0; i < allIds.length; i += pageSize) {
@@ -162,7 +184,7 @@ function computeHealthStats(tweets) {
   };
 }
 
-async function analyzeTopics(anthropicApiKey, tweets) {
+async function analyzeTopics(tweets) {
   // Build a condensed corpus: at most 150 chars per tweet, author + text
   const lines = tweets
     .filter((t) => t.tweet_text && t.tweet_text.trim().length > 0)
@@ -208,33 +230,7 @@ async function analyzeTopics(anthropicApiKey, tweets) {
     ...sample,
   ].join("\n");
 
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "x-api-key": anthropicApiKey,
-      "anthropic-version": "2023-06-01",
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      max_tokens: 2048,
-      messages: [{ role: "user", content: prompt }],
-    }),
-  });
-
-  if (!response.ok) {
-    const err = await response.text();
-    throw new Error(`Anthropic API error (${response.status}): ${err}`);
-  }
-
-  const data = await response.json();
-  return Array.isArray(data?.content)
-    ? data.content
-        .filter((b) => b?.type === "text")
-        .map((b) => b.text)
-        .join("\n")
-        .trim()
-    : "";
+  return await askClaude(prompt, { model: MODEL });
 }
 
 function formatHealthSection(stats) {
@@ -290,13 +286,10 @@ async function main() {
 
   const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
-  const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
   const ownerUserId = process.env.OWNER_USER_ID;
 
-  if (!supabaseUrl || !supabaseServiceKey || !anthropicApiKey) {
-    console.error(
-      "Missing required env vars: SUPABASE_URL, SUPABASE_SERVICE_KEY, ANTHROPIC_API_KEY"
-    );
+  if (!supabaseUrl || !supabaseServiceKey) {
+    console.error("Missing required env vars: SUPABASE_URL, SUPABASE_SERVICE_KEY");
     process.exit(1);
   }
   if (!ownerUserId) {
@@ -308,22 +301,37 @@ async function main() {
     auth: { autoRefreshToken: false, persistSession: false },
   });
 
-  console.log("Fetching bookmarks collection...");
-  const collectionId = await fetchBookmarksCollectionId(supabase, ownerUserId);
-  if (!collectionId) {
-    console.error("No bookmarks collection found for that owner.");
+  console.log("Resolving corpus collections...");
+  const collectionIds = await fetchCollectionIds(supabase, ownerUserId);
+  if (!collectionIds.length) {
+    console.error("No matching collections found for that owner.");
     process.exit(1);
   }
+  console.log(`  using: ${collectionIds.map((c) => c.slug).join(", ")}`);
 
-  console.log("Fetching all bookmarked tweets...");
-  const tweets = await fetchAllBookmarks(supabase, collectionId);
+  console.log("Fetching all corpus tweets...");
+  const tweets = await fetchAllBookmarks(supabase, collectionIds);
   console.log(`Fetched ${tweets.length} tweets.`);
 
   console.log("Computing health stats...");
   const stats = computeHealthStats(tweets);
 
+  // Topic analysis is the only part that needs an LLM. It must never cost us
+  // the health stats, which are already computed and are the report's core.
   console.log("Running topic analysis (single LLM call)...");
-  const topicAnalysis = await analyzeTopics(anthropicApiKey, tweets);
+  let topicAnalysis;
+  try {
+    topicAnalysis = await analyzeTopics(tweets);
+  } catch (err) {
+    console.warn(`  topic analysis failed, writing report without it: ${err.message}`);
+    topicAnalysis = [
+      "# Corpus Audit Report",
+      "",
+      "## Topic Distribution",
+      "",
+      `_Topic analysis unavailable: ${err.message}_`,
+    ].join("\n");
+  }
 
   const report = [
     "# Corpus Audit Report",

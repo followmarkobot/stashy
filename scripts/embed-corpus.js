@@ -130,6 +130,7 @@ async function runPass(name, supabase, openai, applyFilter, stats) {
     let query = supabase
       .from("tweets")
       .select("id, tweet_id, tweet_text, image_text, article_content")
+      .eq("is_duplicate", false) // dedup-corpus.js runs first; don't embed reposts
       .gt("id", cursor)
       .order("id", { ascending: true })
       .limit(PAGE);

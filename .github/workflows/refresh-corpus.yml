@@ -29,11 +29,15 @@ jobs:
 
       - run: npm ci
 
-      - name: Enrich + embed new corpus rows
+      # Hybrid model: OCR needs Claude, which only runs on the local
+      # subscription (there's no Claude login on a CI runner). So CI does the
+      # LLM-free work only — article archiving + embeddings — with ENRICH_IMAGES=0.
+      # Image OCR runs locally via `npm run enrich-corpus` on the subscription.
+      - name: Enrich (articles only) + embed new corpus rows
         run: npm run refresh-corpus
         env:
+          ENRICH_IMAGES: "0" # skip OCR here; run it locally on the subscription
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }} # embeddings
           OWNER_USER_ID: ${{ secrets.OWNER_USER_ID }}

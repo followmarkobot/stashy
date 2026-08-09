@@ -55,6 +55,12 @@ export interface Tweet {
     bookmark_count: number;
     impression_count?: number;
   };
+  tweet_bookmark_folders?: { folder_id: string; folder_name: string | null }[];
+}
+
+export interface BookmarkFolderOption {
+  folder_id: string;
+  folder_name: string | null;
 }
 
 export interface Collection {
@@ -108,11 +114,19 @@ function deriveLinkCardsFromRawJson(rawJson: unknown): LinkCardData[] {
 export async function fetchTweets(
   page: number,
   search?: string,
-  tags?: string[]
+  tags?: string[],
+  onlyMissingMetrics?: boolean,
+  bookmarkFolderId?: string
 ): Promise<{ tweets: Tweet[]; hasMore: boolean }> {
+  // !inner when filtering by folder so the eq() below can constrain on it;
+  // plain (left) embed otherwise so tweets with no folder tag still show.
+  const folderSelect = bookmarkFolderId
+    ? "*, tweet_bookmark_folders!inner(folder_id, folder_name)"
+    : "*, tweet_bookmark_folders(folder_id, folder_name)";
+
   let query = getSupabase()
     .from("tweets")
-    .select("*")
+    .select(folderSelect)
     .order("saved_at", { ascending: false, nullsFirst: false })
     .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
 
@@ -123,6 +137,14 @@ export async function fetchTweets(
 
   if (tags && tags.length > 0) {
     query = query.overlaps("tags", tags);
+  }
+
+  if (onlyMissingMetrics) {
+    query = query.is("public_metrics", null);
+  }
+
+  if (bookmarkFolderId) {
+    query = query.eq("tweet_bookmark_folders.folder_id", bookmarkFolderId);
   }
 
   const { data, error } = await query;
@@ -141,9 +163,31 @@ export async function fetchTweets(
       return deriveLinkCardsFromRawJson(row.raw_json);
     })(),
     tags: Array.isArray(row.tags) ? row.tags : [],
+    tweet_bookmark_folders: Array.isArray(row.tweet_bookmark_folders)
+      ? row.tweet_bookmark_folders
+      : [],
   })) as Tweet[];
 
   return { tweets, hasMore: tweets.length === PAGE_SIZE };
+}
+
+export async function fetchAllBookmarkFolders(): Promise<BookmarkFolderOption[]> {
+  const { data, error } = await getSupabase()
+    .from("tweet_bookmark_folders")
+    .select("folder_id, folder_name");
+
+  if (error || !data) return [];
+
+  const byId = new Map<string, BookmarkFolderOption>();
+  data.forEach((row) => {
+    if (!byId.has(row.folder_id)) {
+      byId.set(row.folder_id, { folder_id: row.folder_id, folder_name: row.folder_name });
+    }
+  });
+
+  return Array.from(byId.values()).sort((a, b) =>
+    (a.folder_name ?? a.folder_id).localeCompare(b.folder_name ?? b.folder_id)
+  );
 }
 
 export async function fetchTweetById(

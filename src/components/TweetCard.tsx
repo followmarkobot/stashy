@@ -208,6 +208,19 @@ export default function TweetCard({
             </div>
           </div>
 
+          {tweet.tweet_bookmark_folders && tweet.tweet_bookmark_folders.length > 0 && (
+            <div className="mt-1 flex flex-wrap gap-1">
+              {tweet.tweet_bookmark_folders.map((folder) => (
+                <span
+                  key={folder.folder_id}
+                  className="rounded-full bg-[rgb(32,35,39)] px-2 py-0.5 text-xs text-[rgb(113,118,123)]"
+                >
+                  {folder.folder_name ?? folder.folder_id}
+                </span>
+              ))}
+            </div>
+          )}
+
           {tweet.tweet_text && (
             <div className="mt-1 break-words whitespace-pre-wrap text-[15px] leading-5 text-white">
               {segments.map((seg, i) =>

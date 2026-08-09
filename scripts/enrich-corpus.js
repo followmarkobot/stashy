@@ -28,7 +28,11 @@
  *   DRY_RUN=1            do everything except write back to Supabase
  *
  * Required env (.env.local or shell):
- *   SUPABASE_URL (or NEXT_PUBLIC_SUPABASE_URL), SUPABASE_SERVICE_KEY, ANTHROPIC_API_KEY
+ *   SUPABASE_URL (or NEXT_PUBLIC_SUPABASE_URL), SUPABASE_SERVICE_KEY
+ *
+ * Image OCR runs through the local Claude Code CLI (see claude-cli.js), so it
+ * bills to the Claude subscription rather than Developer Platform credits.
+ * No ANTHROPIC_API_KEY needed.
  */
 
 const fs = require("fs");
@@ -36,8 +40,9 @@ const path = require("path");
 const { createClient } = require("@supabase/supabase-js");
 const { JSDOM } = require("jsdom");
 const { Readability } = require("@mozilla/readability");
+const { askClaudeAboutImages } = require("./claude-cli");
 
-const MODEL = "claude-sonnet-4-5"; // vision-capable; used for image OCR
+const MODEL = "sonnet"; // CLI alias; vision-capable, used for image OCR
 const OUT_DIR = path.join(process.cwd(), "corpus-enrichment");
 const REPORT_PATH = path.join(process.cwd(), "corpus-enrichment-report.md");
 const DATA_PATH = path.join(OUT_DIR, "enrichment-data.json");
@@ -66,36 +71,61 @@ function loadEnvLocal() {
   }
 }
 
-async function fetchBookmarksCollectionId(supabase, ownerUserId) {
-  for (const col of ["owner_user_id", "owner_x_user_id"]) {
-    const { data, error } = await supabase
-      .from("collections")
-      .select("id")
-      .eq(col, ownerUserId)
-      .eq("slug", "bookmarks")
-      .maybeSingle();
-    if (!error && data?.id) return data.id;
+/**
+ * Resolve collection ids for the owner. Defaults to the two ingest paths that
+ * feed the corpus: `bookmarks` (uncurated X sync) and `curated` (extension
+ * saves). Override with COLLECTIONS=bookmarks to scope a run.
+ */
+async function fetchCollectionIds(supabase, ownerUserId) {
+  const slugs = (process.env.COLLECTIONS || "bookmarks,curated")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const ids = [];
+  for (const slug of slugs) {
+    let found = null;
+    for (const col of ["owner_user_id", "owner_x_user_id"]) {
+      const { data, error } = await supabase
+        .from("collections")
+        .select("id")
+        .eq(col, ownerUserId)
+        .eq("slug", slug)
+        .maybeSingle();
+      if (!error && data?.id) {
+        found = data.id;
+        break;
+      }
+    }
+    if (found) ids.push({ slug, id: found });
+    else console.warn(`  (no '${slug}' collection for this owner — skipping)`);
   }
-  return null;
+  return ids;
 }
 
-async function fetchBookmarkedTweets(supabase, collectionId) {
+async function fetchBookmarkedTweets(supabase, collectionIds) {
   const pageSize = 100;
-  let offset = 0;
-  const ids = [];
-  while (true) {
-    const { data, error } = await supabase
-      .from("collection_tweets")
-      .select("tweet_id")
-      .eq("collection_id", collectionId)
-      .order("added_at", { ascending: false })
-      .range(offset, offset + pageSize - 1);
-    if (error) throw new Error(`collection_tweets: ${error.message}`);
-    if (!data?.length) break;
-    ids.push(...data.map((r) => r.tweet_id).filter(Boolean));
-    if (data.length < pageSize) break;
-    offset += pageSize;
+  const idSet = new Set();
+  for (const { id } of collectionIds) {
+    let offset = 0;
+    while (true) {
+      const { data, error } = await supabase
+        .from("collection_tweets")
+        .select("tweet_id")
+        .eq("collection_id", id)
+        // Bulk-linked rows share one added_at, so that sort is all ties and
+        // range pagination silently skips/repeats rows. tweet_id breaks the tie.
+        .order("added_at", { ascending: false })
+        .order("tweet_id", { ascending: true })
+        .range(offset, offset + pageSize - 1);
+      if (error) throw new Error(`collection_tweets: ${error.message}`);
+      if (!data?.length) break;
+      data.forEach((r) => r.tweet_id && idSet.add(r.tweet_id));
+      if (data.length < pageSize) break;
+      offset += pageSize;
+    }
   }
+  // A tweet can be both curated and bookmarked; dedupe so it enriches once.
+  const ids = [...idSet];
 
   const tweets = [];
   for (let i = 0; i < ids.length; i += pageSize) {
@@ -105,7 +135,10 @@ async function fetchBookmarkedTweets(supabase, collectionId) {
       .select(
         "tweet_id, tweet_text, author_handle, source_url, media, link_cards, urls, article_url, has_article, has_link, image_text, article_content, saved_at"
       )
-      .in("tweet_id", batch);
+      .in("tweet_id", batch)
+      // dedup-corpus.js runs first; don't spend OCR/article-fetch effort on
+      // rows we've already decided are reposts of a kept representative.
+      .eq("is_duplicate", false);
     if (error) throw new Error(`tweets: ${error.message}`);
     tweets.push(...(data || []));
   }
@@ -119,7 +152,12 @@ async function fetchBookmarkedTweets(supabase, collectionId) {
 
 function imageUrls(tweet) {
   const media = Array.isArray(tweet.media) ? tweet.media : [];
-  return media.filter((m) => m?.type === "image" && typeof m.url === "string").map((m) => m.url);
+  return media
+    .filter((m) => m?.type === "image" && typeof m.url === "string")
+    // The extension stores browser-session `blob:` URLs for GIFs; they're dead
+    // outside the tab that made them. Only http(s) can actually be fetched.
+    .filter((m) => /^https?:\/\//i.test(m.url))
+    .map((m) => m.url);
 }
 
 function buildImagePrompt(tweet) {
@@ -141,51 +179,85 @@ function buildImagePrompt(tweet) {
   ].join("\n");
 }
 
-async function ocrImages(anthropicApiKey, tweet) {
+const IMAGE_EXT = {
+  "image/jpeg": ".jpg",
+  "image/jpg": ".jpg",
+  "image/png": ".png",
+  "image/gif": ".gif",
+  "image/webp": ".webp",
+};
+
+/**
+ * OCR a tweet's images via the Claude Code CLI. The CLI reads images off disk
+ * rather than accepting base64 inline, so each image is downloaded to a temp
+ * dir, read, and then cleaned up.
+ */
+async function ocrImages(tweet) {
   const urls = imageUrls(tweet).slice(0, 6);
   if (!urls.length) return null;
 
-  const content = [{ type: "text", text: buildImagePrompt(tweet) }];
-  for (const url of urls) {
-    try {
-      const resp = await fetch(url);
-      if (!resp.ok) continue;
-      const mediaType = resp.headers.get("content-type") || "image/jpeg";
-      const buf = Buffer.from(await resp.arrayBuffer());
-      content.push({
-        type: "image",
-        source: { type: "base64", media_type: mediaType.split(";")[0], data: buf.toString("base64") },
-      });
-    } catch (err) {
-      console.warn(`    image fetch failed (${url}): ${err.message}`);
+  // Stage images under the project dir, not os.tmpdir(): the Claude CLI is
+  // sandboxed to its working directory and silently refuses to read outside it
+  // (returning prose about permissions, which would otherwise be stored as OCR).
+  const stageRoot = path.join(OUT_DIR, ".ocr-tmp");
+  fs.mkdirSync(stageRoot, { recursive: true });
+  const tmpDir = fs.mkdtempSync(path.join(stageRoot, "img-"));
+  try {
+    const localPaths = [];
+    for (const [i, url] of urls.entries()) {
+      try {
+        const resp = await fetch(url);
+        if (!resp.ok) continue;
+        const mediaType = (resp.headers.get("content-type") || "image/jpeg").split(";")[0].trim();
+        const ext = IMAGE_EXT[mediaType.toLowerCase()];
+        if (!ext) {
+          console.warn(`    skipping unsupported image type ${mediaType} (${url})`);
+          continue;
+        }
+        const buf = Buffer.from(await resp.arrayBuffer());
+        const file = path.join(tmpDir, `${tweet.tweet_id}-${i}${ext}`);
+        fs.writeFileSync(file, buf);
+        localPaths.push(file);
+      } catch (err) {
+        console.warn(`    image fetch failed (${url}): ${err.message}`);
+      }
     }
-  }
-  if (content.length === 1) return null; // no images actually loaded
+    if (!localPaths.length) return null;
 
-  let attempts = 0;
-  while (attempts < 4) {
-    attempts += 1;
-    const resp = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "x-api-key": anthropicApiKey,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({ model: MODEL, max_tokens: 1500, messages: [{ role: "user", content }] }),
-    });
-    if (resp.status === 429 && attempts < 4) {
-      await sleep(attempts * 2500);
-      continue;
+    let attempts = 0;
+    while (true) {
+      attempts += 1;
+      try {
+        const text = await askClaudeAboutImages(buildImagePrompt(tweet), localPaths, {
+          model: MODEL,
+        });
+        if (!looksLikeOcr(text)) {
+          throw new Error(`unexpected OCR response: ${text.slice(0, 120).replace(/\n/g, " ")}`);
+        }
+        return text;
+      } catch (err) {
+        if (attempts >= 4) throw err;
+        await sleep(attempts * 2500);
+      }
     }
-    if (!resp.ok) throw new Error(`Anthropic ${resp.status}: ${await resp.text()}`);
-    const data = await resp.json();
-    const text = Array.isArray(data?.content)
-      ? data.content.filter((b) => b?.type === "text").map((b) => b.text).join("\n").trim()
-      : "";
-    return text;
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
   }
-  throw new Error("exceeded Anthropic retries");
+}
+
+/**
+ * The CLI answers in prose when it can't read a file ("permission denied…"),
+ * which is a successful exit code carrying useless text. Only accept responses
+ * shaped like the format buildImagePrompt asked for, so a read failure surfaces
+ * as an error instead of being written to the corpus as image_text.
+ */
+function looksLikeOcr(text) {
+  if (!text) return false;
+  const t = text.trim();
+  // "NONE" means no meaningful text. The model sometimes appends a description
+  // after it ("NONE **Description:** ..."), so accept any NONE-led response.
+  if (/^NONE\b/i.test(t)) return true;
+  return /\*\*Transcription:\*\*/i.test(t) && /\*\*Description:\*\*/i.test(t);
 }
 
 // ---------- Article / linked-page archival ----------
@@ -363,10 +435,9 @@ async function main() {
   loadEnvLocal();
   const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseKey = process.env.SUPABASE_SERVICE_KEY;
-  const anthropicKey = process.env.ANTHROPIC_API_KEY;
   const ownerUserId = process.env.OWNER_USER_ID;
-  if (!supabaseUrl || !supabaseKey || !anthropicKey) {
-    console.error("Missing SUPABASE_URL / SUPABASE_SERVICE_KEY / ANTHROPIC_API_KEY");
+  if (!supabaseUrl || !supabaseKey) {
+    console.error("Missing SUPABASE_URL / SUPABASE_SERVICE_KEY");
     process.exit(1);
   }
   if (!ownerUserId) {
@@ -378,16 +449,16 @@ async function main() {
     auth: { autoRefreshToken: false, persistSession: false },
   });
 
-  const collectionId = await fetchBookmarksCollectionId(supabase, ownerUserId);
-  if (!collectionId) {
-    console.error("No bookmarks collection for that owner.");
+  const collectionIds = await fetchCollectionIds(supabase, ownerUserId);
+  if (!collectionIds.length) {
+    console.error("No matching collections for that owner.");
     process.exit(1);
   }
 
-  let tweets = await fetchBookmarkedTweets(supabase, collectionId);
+  let tweets = await fetchBookmarkedTweets(supabase, collectionIds);
   if (LIMIT) tweets = tweets.slice(0, LIMIT);
   console.log(
-    `Loaded ${tweets.length} bookmarked tweets. images=${DO_IMAGES} articles=${DO_ARTICLES} force=${FORCE} dryRun=${DRY_RUN}`
+    `Loaded ${tweets.length} tweets from [${collectionIds.map((c) => c.slug).join(", ")}]. images=${DO_IMAGES} articles=${DO_ARTICLES} force=${FORCE} dryRun=${DRY_RUN}`
   );
 
   fs.mkdirSync(path.join(OUT_DIR, "images"), { recursive: true });
@@ -425,7 +496,7 @@ async function main() {
         console.log("    image_text already present — skip");
       } else {
         try {
-          const ocr = await ocrImages(anthropicKey, t);
+          const ocr = await ocrImages(t);
           if (ocr && ocr.trim() && ocr.trim() !== "NONE") {
             rec.image_text = ocr.trim();
             fs.writeFileSync(

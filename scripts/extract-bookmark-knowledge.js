@@ -11,15 +11,22 @@
  * Required env (.env.local or shell):
  *   SUPABASE_URL (or NEXT_PUBLIC_SUPABASE_URL)
  *   SUPABASE_SERVICE_KEY
- *   ANTHROPIC_API_KEY
+ *
+ * Extraction runs through the local Claude Code CLI (see claude-cli.js), so it
+ * bills to the Claude subscription rather than Developer Platform credits.
+ * No ANTHROPIC_API_KEY needed.
  */
 
 const fs = require("fs");
 const path = require("path");
 const { createClient } = require("@supabase/supabase-js");
+const { askClaude, askClaudeAboutImages } = require("./claude-cli");
 
-const MODEL = "claude-sonnet-4-5";
+const MODEL = "sonnet"; // CLI alias; the CLI resolves it to the current Sonnet
 const OUTPUT_PATH = path.join(process.cwd(), "bookmark-knowledge-report.md");
+// Images must be staged inside the project dir — the CLI is sandboxed to its
+// working directory and can't read os.tmpdir().
+const STAGE_ROOT = path.join(process.cwd(), "corpus-enrichment", ".extract-tmp");
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -117,73 +124,64 @@ function buildExtractionPrompt(tweet) {
   ].join("\n");
 }
 
-async function extractFromTweet(anthropicApiKey, tweet) {
+const IMAGE_EXT = {
+  "image/jpeg": ".jpg",
+  "image/jpg": ".jpg",
+  "image/png": ".png",
+  "image/gif": ".gif",
+  "image/webp": ".webp",
+};
+
+async function extractFromTweet(tweet) {
   const images = (Array.isArray(tweet.media) ? tweet.media : []).filter(
-    (m) => m?.type === "image" && typeof m.url === "string"
+    (m) =>
+      m?.type === "image" &&
+      typeof m.url === "string" &&
+      // `blob:` URLs are browser-session-only and dead outside the tab.
+      /^https?:\/\//i.test(m.url)
   );
 
-  const content = [{ type: "text", text: buildExtractionPrompt(tweet) }];
+  const prompt = buildExtractionPrompt(tweet);
+  fs.mkdirSync(STAGE_ROOT, { recursive: true });
+  const tmpDir = fs.mkdtempSync(path.join(STAGE_ROOT, "img-"));
 
-  for (const img of images.slice(0, 4)) {
-    try {
-      const resp = await fetch(img.url);
-      if (!resp.ok) continue;
-      const contentType = resp.headers.get("content-type") || "image/jpeg";
-      const buf = Buffer.from(await resp.arrayBuffer());
-      content.push({
-        type: "image",
-        source: {
-          type: "base64",
-          media_type: contentType,
-          data: buf.toString("base64"),
-        },
-      });
-    } catch (err) {
-      console.warn(`  [${tweet.tweet_id}] Failed to fetch image ${img.url}: ${err.message}`);
-    }
-  }
-
-  let attempts = 0;
-  while (attempts < 4) {
-    attempts += 1;
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "x-api-key": anthropicApiKey,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        max_tokens: 1024,
-        messages: [{ role: "user", content }],
-      }),
-    });
-
-    if (response.status === 429 && attempts < 4) {
-      const waitMs = attempts * 2000;
-      console.warn(`  [${tweet.tweet_id}] Rate limited. Retrying in ${waitMs}ms.`);
-      await sleep(waitMs);
-      continue;
-    }
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Anthropic API error (${response.status}): ${errorText}`);
-    }
-
-    const data = await response.json();
-    const text = Array.isArray(data?.content)
-      ? data.content
-          .filter((b) => b?.type === "text")
-          .map((b) => b.text)
-          .join("\n")
+  try {
+    const localPaths = [];
+    for (const [i, img] of images.slice(0, 4).entries()) {
+      try {
+        const resp = await fetch(img.url);
+        if (!resp.ok) continue;
+        const mediaType = (resp.headers.get("content-type") || "image/jpeg")
+          .split(";")[0]
           .trim()
-      : "";
-    return text;
-  }
+          .toLowerCase();
+        const ext = IMAGE_EXT[mediaType];
+        if (!ext) continue;
+        const file = path.join(tmpDir, `${tweet.tweet_id}-${i}${ext}`);
+        fs.writeFileSync(file, Buffer.from(await resp.arrayBuffer()));
+        localPaths.push(file);
+      } catch (err) {
+        console.warn(`  [${tweet.tweet_id}] Failed to fetch image ${img.url}: ${err.message}`);
+      }
+    }
 
-  throw new Error(`Exceeded retries for tweet ${tweet.tweet_id}`);
+    let attempts = 0;
+    while (true) {
+      attempts += 1;
+      try {
+        return localPaths.length
+          ? await askClaudeAboutImages(prompt, localPaths, { model: MODEL })
+          : await askClaude(prompt, { model: MODEL });
+      } catch (err) {
+        if (attempts >= 4) throw new Error(`Exceeded retries for tweet ${tweet.tweet_id}: ${err.message}`);
+        const waitMs = attempts * 2000;
+        console.warn(`  [${tweet.tweet_id}] ${err.message}. Retrying in ${waitMs}ms.`);
+        await sleep(waitMs);
+      }
+    }
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
 }
 
 async function main() {
@@ -191,12 +189,11 @@ async function main() {
 
   const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
-  const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
   const ownerUserId = process.env.OWNER_USER_ID;
 
-  if (!supabaseUrl || !supabaseServiceKey || !anthropicApiKey) {
+  if (!supabaseUrl || !supabaseServiceKey) {
     console.error(
-      "Missing required env vars: SUPABASE_URL (or NEXT_PUBLIC_SUPABASE_URL), SUPABASE_SERVICE_KEY, ANTHROPIC_API_KEY"
+      "Missing required env vars: SUPABASE_URL (or NEXT_PUBLIC_SUPABASE_URL), SUPABASE_SERVICE_KEY"
     );
     process.exit(1);
   }
@@ -224,7 +221,7 @@ async function main() {
   for (const [index, tweet] of tweets.entries()) {
     console.log(`[${index + 1}/${tweets.length}] Processing tweet ${tweet.tweet_id}...`);
     try {
-      const result = await extractFromTweet(anthropicApiKey, tweet);
+      const result = await extractFromTweet(tweet);
       if (result && result.trim() !== "NONE") {
         findings.push({ tweet, result });
         console.log(`  -> found something.`);

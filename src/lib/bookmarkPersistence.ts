@@ -25,6 +25,7 @@ export function buildCanonicalTweetRow(tweet: Tweet): Record<string, unknown> {
     in_reply_to_tweet_id: tweet.in_reply_to_tweet_id,
     conversation_id: tweet.conversation_id,
     raw_json: tweet.raw_json,
+    is_api_saved: true,
   };
 }
 

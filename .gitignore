@@ -35,3 +35,12 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+.gstack/
+
+# growth-advisor-bot
+.growth-bot-offset
+growth-advisor-bot.log
+
+# tag-corpus audit trail (regeneratable from Supabase; not source)
+tag-corpus-log.csv
+corpus-export.csv

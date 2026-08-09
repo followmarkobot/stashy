@@ -55,6 +55,11 @@ export default function TweetFeed({
   const setSearch = feed.source === "stash" ? feed.setSearch : undefined;
   const selectedTags = feed.source === "stash" ? feed.selectedTags : [];
   const setSelectedTags = feed.source === "stash" ? feed.setSelectedTags : undefined;
+  const onlyMissingMetrics = feed.source === "stash" ? feed.onlyMissingMetrics : false;
+  const setOnlyMissingMetrics = feed.source === "stash" ? feed.setOnlyMissingMetrics : undefined;
+  const bookmarkFolderId = feed.source === "stash" ? feed.bookmarkFolderId : "";
+  const setBookmarkFolderId = feed.source === "stash" ? feed.setBookmarkFolderId : undefined;
+  const availableBookmarkFolders = feed.source === "stash" ? feed.availableBookmarkFolders : [];
   const availableTags = feed.source === "stash" ? feed.availableTags : [];
   const refreshBookmarks = feed.source === "bookmarks" ? feed.refreshBookmarks : undefined;
   const bookmarkSyncStatus = feed.source === "bookmarks" ? feed.bookmarkSyncStatus : null;
@@ -147,6 +152,11 @@ export default function TweetFeed({
             onTagFilter={setSelectedTags}
             availableTags={availableTags}
             selectedTags={selectedTags}
+            onlyMissingMetrics={onlyMissingMetrics}
+            onToggleMissingMetrics={setOnlyMissingMetrics}
+            bookmarkFolderId={bookmarkFolderId}
+            onBookmarkFolderChange={setBookmarkFolderId}
+            availableBookmarkFolders={availableBookmarkFolders}
           />
           {tweets.length > 0 && (
             <button

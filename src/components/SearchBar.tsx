@@ -1,12 +1,18 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import type { BookmarkFolderOption } from "../lib/supabase";
 
 interface SearchBarProps {
   onSearch: (query: string) => void;
   onTagFilter: (tags: string[]) => void;
   availableTags: string[];
   selectedTags: string[];
+  onlyMissingMetrics?: boolean;
+  onToggleMissingMetrics?: (value: boolean) => void;
+  bookmarkFolderId?: string;
+  onBookmarkFolderChange?: (folderId: string) => void;
+  availableBookmarkFolders?: BookmarkFolderOption[];
 }
 
 export default function SearchBar({
@@ -14,6 +20,11 @@ export default function SearchBar({
   onTagFilter,
   availableTags,
   selectedTags,
+  onlyMissingMetrics = false,
+  onToggleMissingMetrics,
+  bookmarkFolderId = "",
+  onBookmarkFolderChange,
+  availableBookmarkFolders = [],
 }: SearchBarProps) {
   const [query, setQuery] = useState("");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -83,6 +94,41 @@ export default function SearchBar({
           </button>
         )}
       </div>
+
+      {/* Missing metrics filter + bookmark folder filter */}
+      {(onToggleMissingMetrics || onBookmarkFolderChange) && (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          {onToggleMissingMetrics && (
+            <button
+              onClick={() => onToggleMissingMetrics(!onlyMissingMetrics)}
+              className={`text-xs px-3 py-1 rounded-full font-medium transition-colors ${
+                onlyMissingMetrics
+                  ? "bg-[rgb(255,180,0)] text-black"
+                  : "bg-[rgb(32,35,39)] text-[rgb(113,118,123)] hover:bg-[rgb(47,51,54)]"
+              }`}
+            >
+              Missing metrics
+            </button>
+          )}
+
+          {onBookmarkFolderChange && availableBookmarkFolders.length > 0 && (
+            <select
+              value={bookmarkFolderId}
+              onChange={(e) => onBookmarkFolderChange(e.target.value)}
+              className={`text-xs px-3 py-1 rounded-full font-medium bg-[rgb(32,35,39)] border-none outline-none transition-colors ${
+                bookmarkFolderId ? "text-[rgb(29,155,240)]" : "text-[rgb(113,118,123)]"
+              }`}
+            >
+              <option value="">All folders</option>
+              {availableBookmarkFolders.map((folder) => (
+                <option key={folder.folder_id} value={folder.folder_id}>
+                  {folder.folder_name ?? folder.folder_id}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+      )}
 
       {/* Tag filters */}
       {availableTags.length > 0 && (

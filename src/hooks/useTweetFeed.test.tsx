@@ -9,10 +9,12 @@ const {
   checkStatusMock,
   fetchTweetsMock,
   fetchAllTagsMock,
+  fetchAllBookmarkFoldersMock,
 } = vi.hoisted(() => ({
   checkStatusMock: vi.fn(),
   fetchTweetsMock: vi.fn(),
   fetchAllTagsMock: vi.fn(),
+  fetchAllBookmarkFoldersMock: vi.fn(),
 }));
 
 vi.mock("../contexts/XAuthContext", () => ({
@@ -26,6 +28,7 @@ vi.mock("../contexts/XAuthContext", () => ({
 vi.mock("../lib/supabase", () => ({
   fetchTweets: fetchTweetsMock,
   fetchAllTags: fetchAllTagsMock,
+  fetchAllBookmarkFolders: fetchAllBookmarkFoldersMock,
 }));
 
 // ---------------------------------------------------------------------------
@@ -97,6 +100,8 @@ function makeBeforeEach() {
       fetchTweetsMock.mockReset();
       fetchAllTagsMock.mockReset();
       fetchAllTagsMock.mockResolvedValue([]);
+      fetchAllBookmarkFoldersMock.mockReset();
+      fetchAllBookmarkFoldersMock.mockResolvedValue([]);
       fetchTweetsMock.mockResolvedValue({ tweets: [], hasMore: false });
 
       class IntersectionObserverMock {
@@ -210,7 +215,7 @@ describe("useTweetFeed stash", () => {
       root.render(<StashHarness />);
     });
 
-    expect(fetchTweetsMock).toHaveBeenCalledWith(0, "", []);
+    expect(fetchTweetsMock).toHaveBeenCalledWith(0, "", [], false, undefined);
 
     helpers.teardown();
   });
@@ -227,7 +232,7 @@ describe("useTweetFeed stash", () => {
       btn.click();
     });
 
-    expect(fetchTweetsMock).toHaveBeenCalledWith(0, "cats", []);
+    expect(fetchTweetsMock).toHaveBeenCalledWith(0, "cats", [], false, undefined);
 
     helpers.teardown();
   });
@@ -244,7 +249,7 @@ describe("useTweetFeed stash", () => {
       btn.click();
     });
 
-    expect(fetchTweetsMock).toHaveBeenCalledWith(0, "", ["tag1"]);
+    expect(fetchTweetsMock).toHaveBeenCalledWith(0, "", ["tag1"], false, undefined);
 
     helpers.teardown();
   });
